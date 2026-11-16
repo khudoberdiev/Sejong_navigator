@@ -1,19 +1,73 @@
 <!-- AI-generated — to be rewritten by me -->
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Sejong Navigator</title>
-    <style>
-      body { width: 320px; font-family: system-ui, sans-serif; margin: 12px; }
-      input { width: 100%; box-sizing: border-box; padding: 6px; }
-      #results { list-style: none; padding: 0; }
-      #results li { padding: 6px 0; border-bottom: 1px solid #ddd; cursor: pointer; }
-    </style>
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <input id="query" placeholder="baholarim qayerda? / where are my grades? / 성적 조회" />
-    <ul id="results"></ul>
+    <header>
+      <strong>Sejong Navigator</strong>
+      <nav class="tabs">
+        <button class="tab" data-tab="search">Search</button>
+        <button class="tab" data-tab="record">Record menu</button>
+      </nav>
+    </header>
+
+    <p id="backend-error" class="banner" hidden></p>
+
+    <!-- ============================================================ Search -->
+    <section id="tab-search" hidden>
+      <div class="search-box">
+        <input id="q" type="search" autocomplete="off"
+               placeholder="baholarim qayerda? · where are my grades? · 성적 조회" />
+        <ul id="suggestions" class="suggestions" hidden></ul>
+      </div>
+      <ol id="results" class="results"></ol>
+
+      <div id="route" hidden>
+        <h3>Click path</h3>
+        <ol id="crumbs" class="crumbs"></ol>
+        <div class="row">
+          <button id="guide-start" class="primary">Show me on this page</button>
+          <button id="guide-open" hidden></button>
+          <button id="guide-stop">Stop</button>
+        </div>
+        <p id="guide-status" class="muted"></p>
+      </div>
+    </section>
+
+    <!-- ============================================================ Record -->
+    <section id="tab-record" hidden>
+      <p class="muted">
+        Records ONLY menu labels, links/selectors and nesting on the Portal, SJPT, e-Campus and
+        Library sites. Never page content, grades, names or student IDs.
+      </p>
+      <div class="row">
+        <button id="rec-toggle" class="primary">Start recording clicks</button>
+        <button id="rec-scan">Scan menus on this page</button>
+      </div>
+      <div class="row">
+        <button id="rec-newpath">New path</button>
+        <button id="rec-undo">Undo last</button>
+      </div>
+      <p class="muted">Next click becomes a child of:</p>
+      <ol id="rec-chain" class="crumbs small"></ol>
+
+      <h3><span id="rec-count">0</span> recorded items</h3>
+      <ul id="rec-list" class="rec-list"></ul>
+
+      <div class="row">
+        <button id="rec-export" class="primary">Export JSON</button>
+        <label class="button">Import JSON<input id="rec-import" type="file" accept=".json,application/json" hidden /></label>
+        <button id="rec-clear" class="danger">Clear all</button>
+      </div>
+      <p id="rec-status" class="muted"></p>
+    </section>
+
+    <script src="config.js"></script>
+    <script src="shared.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

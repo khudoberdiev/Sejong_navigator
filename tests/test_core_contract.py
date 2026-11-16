@@ -17,8 +17,12 @@ def lexical(query, k):
 # --------------------------------------------------------------------- route
 
 
+def ids(path):
+    return [step["id"] for step in path]
+
+
 def test_route_portal_to_current_grades():
-    assert core.route("portal.root", "sjpt.grade_current") == [
+    assert ids(core.route("portal.root", "sjpt.grade_current")) == [
         "portal.root",
         "portal.sjpt",
         "sjpt.class_grade",
@@ -27,12 +31,29 @@ def test_route_portal_to_current_grades():
     ]
 
 
+def test_route_returns_full_items_like_search_without_score():
+    path = core.route("portal.root", "sjpt.grade_current")
+    search_fields = set(core.search("grades", 1)[0]) - {"score"}
+    assert all(set(step) == search_fields for step in path)
+    last = path[-1]
+    assert last["name_ko"] == "금학기 성적조회"
+    assert last["name_en"] == "Current Semester Grade Inquiry"
+    assert last["selector"] == "a[data-menu='grade-current']"
+    assert isinstance(last["keywords"], list)
+
+
+def test_route_steps_follow_parent_links():
+    path = core.route("portal.root", "library.loans")
+    for parent, child in zip(path, path[1:]):
+        assert child["parent_id"] == parent["id"]
+
+
 def test_route_same_node():
-    assert core.route("library.loans", "library.loans") == ["library.loans"]
+    assert ids(core.route("library.loans", "library.loans")) == ["library.loans"]
 
 
 def test_route_across_sites_goes_through_portal():
-    path = core.route("library.loans", "ecampus.assignments")
+    path = ids(core.route("library.loans", "ecampus.assignments"))
     assert path[0] == "library.loans" and path[-1] == "ecampus.assignments"
     assert "portal.root" in path
 

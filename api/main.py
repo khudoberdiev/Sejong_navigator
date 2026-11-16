@@ -44,13 +44,8 @@ def search(q: str = Query(..., min_length=1), k: int = Query(5, ge=1, le=50)) ->
 
 
 @app.get("/route")
-def route(from_id: str = Query(..., alias="from"), to_id: str = Query(..., alias="to")) -> list[str]:
+def route(from_id: str = Query(..., alias="from"), to_id: str = Query(..., alias="to")) -> list[dict]:
     return _call(core.route, from_id, to_id)
-
-
-@app.get("/items")
-def items(ids: str = Query("", description="comma-separated menu item ids")) -> list[dict]:
-    return _call(core.get_items, [i for i in ids.split(",") if i])
 
 
 @app.get("/suggest")

@@ -138,8 +138,7 @@ const HANDLERS = {
   "api:health": () => apiGet("/health", {}),
   "api:search": (m) => apiGet("/search", { q: m.query, k: m.k || self.SEJONG_CONFIG.SEARCH_K }),
   "api:suggest": (m) => apiGet("/suggest", { prefix: m.prefix }),
-  "api:route": (m) => apiGet("/route", { from: m.from, to: m.to }),
-  "api:items": (m) => apiGet("/items", { ids: m.ids.join(",") }),
+  "api:route": (m) => apiGet("/route", { from: m.from, to: m.to }), // → full items, in click order
 
   "rec:state": async () => recorderState(await withStore((s) => s), await isRecording()),
   "rec:setRecording": async (m) => {

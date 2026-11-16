@@ -1,20 +1,32 @@
 {
   "manifest_version": 3,
   "name": "Sejong Navigator",
-  "version": "0.1.0",
-  "description": "AI-generated — to be rewritten by me. Ask where a page is on Sejong websites and get the click path.",
-  "action": { "default_popup": "popup.html" },
+  "version": "0.2.0",
+  "description": "AI-generated — to be rewritten by me. Find pages on Sejong University websites and record their menus.",
+  "action": { "default_popup": "popup.html", "default_title": "Sejong Navigator" },
   "background": { "service_worker": "background.js" },
-  "permissions": ["storage"],
+  "permissions": ["storage", "webNavigation"],
   "host_permissions": [
-    "https://*.sejong.ac.kr/*",
-    "http://127.0.0.1:8000/*"
+    "*://portal.sejong.ac.kr/*",
+    "*://sjpt.sejong.ac.kr/*",
+    "*://ecampus.sejong.ac.kr/*",
+    "*://library.sejong.ac.kr/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://*.sejong.ac.kr/*"],
-      "js": ["content.js"],
-      "css": ["content.css"]
+      "matches": [
+        "*://portal.sejong.ac.kr/*",
+        "*://sjpt.sejong.ac.kr/*",
+        "*://ecampus.sejong.ac.kr/*",
+        "*://library.sejong.ac.kr/*"
+      ],
+      "js": ["shared.js", "content.js"],
+      "css": ["content.css"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_idle"
     }
   ]
 }

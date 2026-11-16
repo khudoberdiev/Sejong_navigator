@@ -1,11 +1,35 @@
 /* AI-generated — to be rewritten by me */
+
+/* Guide: the next menu item to click */
 .sejong-nav-highlight {
   outline: 3px solid #c3002f !important;
-  outline-offset: 2px;
+  outline-offset: 2px !important;
   border-radius: 4px;
   animation: sejong-nav-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes sejong-nav-pulse {
-  50% { outline-color: rgba(195, 0, 47, 0.3); }
+  50% { outline-color: rgba(195, 0, 47, 0.25); }
 }
+
+#sejong-nav-pointer {
+  position: fixed;
+  z-index: 2147483647;
+  max-width: 320px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #c3002f;
+  color: #fff;
+  font: 600 13px/1.35 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+#sejong-nav-pointer small {
+  opacity: 0.8;
+  font-weight: 400;
+}
+
+/* Recorder: short flash on the clicked element */
+.sejong-rec-ok { outline: 3px solid #1a7f37 !important; outline-offset: 2px !important; }
+.sejong-rec-skip { outline: 3px dashed #9a6700 !important; outline-offset: 2px !important; }

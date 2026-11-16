@@ -207,39 +207,30 @@ def search_with_weight(query: str, k: int, weight: float) -> list[dict]:
     return [{**item.to_dict(), "score": score} for score, item in top_k(scored, k)]
 
 
-def route(from_id: str, to_id: str) -> list[str]:
-    """Return the click path from one menu item to another.
+def route(from_id: str, to_id: str) -> list[dict]:
+    """Return the click path from one menu item to another, as full menu items.
 
     The menu map is treated as an undirected graph: each parent_id link is an
     edge. The path is found with BFS, so it has the fewest clicks.
     Usually from_id is the page the student is on now (or "portal.root").
+    The extension uses the items directly: names for the breadcrumbs, and
+    selector / names to find each step on the page.
 
     Example:
-        route("portal.root", "sjpt.grade_current")
+        [step["id"] for step in route("portal.root", "sjpt.grade_current")]
         -> ["portal.root", "portal.sjpt", "sjpt.class_grade",
             "sjpt.grade_eval", "sjpt.grade_current"]
 
     Returns:
-        Menu item ids from from_id to to_id, both included.
-        [from_id] if they are the same. [] if no path exists.
+        One dict per step, from from_id to to_id (both included), in click
+        order. Each dict has every MenuItem field (the same fields as a search
+        result, without "score"). [item] if from_id == to_id. [] if no path exists.
 
     Raises:
         KeyError: if either id is not in the menu map.
     """
-    return bfs_path(_graph(), from_id, to_id)
-
-
-def get_items(ids: list[str]) -> list[dict]:
-    """Return the full menu items for the given ids, in the same order.
-
-    The extension calls this after route() to show breadcrumbs (names) and to
-    find each step on the page (selector, names).
-
-    Raises:
-        KeyError: if any id is not in the menu map.
-    """
-    all_items = load_menu_items()
-    return [all_items[item_id].to_dict() for item_id in ids]
+    items = load_menu_items()
+    return [items[item_id].to_dict() for item_id in bfs_path(_graph(), from_id, to_id)]
 
 
 def suggest(prefix: str) -> list[str]:
