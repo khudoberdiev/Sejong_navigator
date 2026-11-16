@@ -1,0 +1,34 @@
+# AI-generated — to be rewritten by me
+
+# Secrets
+.env
+.env.*
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Model caches / downloaded weights
+.cache/
+models/
+huggingface/
+*.safetensors
+*.bin
+*.onnx
+
+# Extension builds
+extension/*.zip
+*.crx
+*.pem
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
