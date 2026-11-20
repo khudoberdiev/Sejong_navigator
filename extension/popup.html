@@ -12,6 +12,7 @@
       <nav class="tabs">
         <button class="tab" data-tab="search">Search</button>
         <button class="tab" data-tab="record">Record menu</button>
+        <button id="panel-close" class="icon" title="Close panel" aria-label="Close panel">✕</button>
       </nav>
     </header>
 
@@ -36,6 +37,13 @@
         </div>
         <p id="guide-status" class="muted"></p>
       </div>
+
+      <details class="settings">
+        <summary>Settings</summary>
+        <label><input id="opt-english" type="checkbox" /> Keep English menu labels on Sejong sites</label>
+        <label><input id="opt-translate" type="checkbox" /> Translate Korean pop-ups to English (on this computer)</label>
+        <p class="muted">Reload the Sejong tab after changing these.</p>
+      </details>
     </section>
 
     <!-- ============================================================ Record -->

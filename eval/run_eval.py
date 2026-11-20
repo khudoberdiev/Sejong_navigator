@@ -18,6 +18,7 @@ SETUPS = {"lexical only (w=0)": 0.0, "semantic only (w=1)": 1.0,
           f"hybrid (w={navigator.SEMANTIC_WEIGHT})": navigator.SEMANTIC_WEIGHT}
 SWEEP = (0.0, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
 RESULTS = Path(__file__).resolve().parent / "results.md"
+FINETUNE_RESULTS = Path(__file__).resolve().parent / "finetune_results.md"
 
 
 def evaluate(weight: float) -> tuple[dict, list]:
@@ -76,6 +77,11 @@ def main() -> None:
         lines.append(f"| {lang} | {question} | `{expected}` | {', '.join(f'`{i}`' for i in ids)} | {note} |")
     if not hybrid_failures:
         lines.append("| | (none) | | | |")
+
+    # Written by ml/finetune.py; kept here so this file always has the full picture.
+    if FINETUNE_RESULTS.exists():
+        section = FINETUNE_RESULTS.read_text(encoding="utf-8").split("\n", 1)[1]  # skip its header comment
+        lines += ["", section.rstrip()]
 
     RESULTS.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))

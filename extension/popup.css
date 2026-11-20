@@ -21,15 +21,22 @@
   }
 }
 
+/* Side panel: Chrome sets the width (user-resizable); fill it and the full height. */
+html, body { min-height: 100%; }
 body {
-  width: 380px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
   margin: 0;
   padding: 10px 12px 12px;
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.4 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
 }
-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+button.icon { padding: 3px 7px; border-color: transparent; color: var(--muted); }
+button.icon:hover { color: var(--fg); }
 h3 { margin: 12px 0 6px; font-size: 13px; }
 .muted { color: var(--muted); margin: 6px 0; }
 .banner { background: var(--warn-bg); padding: 6px 8px; border-radius: 6px; margin: 0 0 8px; }
@@ -83,9 +90,14 @@ button.danger { color: var(--accent); }
 .crumbs .crumb { display: flex; flex-direction: column; }
 .crumbs .crumb .en { color: var(--muted); font-size: 11px; }
 .crumbs li.current .crumb { color: var(--accent); font-weight: 600; }
+.crumbs li.done .crumb { color: var(--muted); text-decoration: line-through; }
 .crumbs.small { font-size: 12px; min-height: 18px; }
 
-.rec-list { list-style: none; padding: 0; margin: 0; max-height: 180px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; }
+.settings { margin-top: 12px; }
+.settings summary { cursor: pointer; color: var(--muted); }
+.settings label { display: block; margin: 6px 0; }
+
+.rec-list { list-style: none; padding: 0; margin: 0; max-height: 45vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; }
 .rec-list li { display: flex; justify-content: space-between; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .rec-list li:last-child { border-bottom: 0; }
 .rec-list .path { overflow-wrap: anywhere; }

@@ -1,0 +1,377 @@
+{
+  "_comment": "AI-generated — to be rewritten by me. EXAMPLE data: names are realistic, but URLs and CSS selectors are placeholders until checked on the real sites. No personal data. 'keywords' is optional: synonyms in Uzbek, English and Korean.",
+  "version": 1,
+  "items": [
+    {
+      "id": "portal.root",
+      "site": "portal",
+      "name_ko": "세종대학교 포털",
+      "name_en": "Sejong University Portal",
+      "parent_id": null,
+      "url": "https://portal.sejong.ac.kr",
+      "selector": null,
+      "description": "Main portal after login. Entry point to SJPT, e-Campus and the library.",
+      "keywords": [
+        "portal",
+        "bosh sahifa",
+        "asosiy sahifa",
+        "home",
+        "main page",
+        "포털",
+        "메인"
+      ]
+    },
+    {
+      "id": "portal.sjpt",
+      "site": "portal",
+      "name_ko": "학사정보시스템",
+      "name_en": "Academic Information System (SJPT)",
+      "parent_id": "portal.root",
+      "url": null,
+      "selector": "a[href*='sjpt']",
+      "description": "Student academic pages: grades, timetable, records, tuition.",
+      "keywords": [
+        "sjpt",
+        "akademik tizim",
+        "o'quv tizimi",
+        "academic system",
+        "student system",
+        "학사",
+        "학사시스템",
+        "학사정보"
+      ]
+    },
+    {
+      "id": "sjpt.class_grade",
+      "site": "sjpt",
+      "name_ko": "수업/성적",
+      "name_en": "Class/Grade",
+      "parent_id": "portal.sjpt",
+      "url": null,
+      "selector": "#menu-class-grade",
+      "description": "Menu group for classes, grades, timetable and lecture evaluation.",
+      "keywords": [
+        "darslar",
+        "dars va baholar",
+        "classes",
+        "courses and grades",
+        "수업",
+        "수업성적"
+      ]
+    },
+    {
+      "id": "sjpt.grade_eval",
+      "site": "sjpt",
+      "name_ko": "성적 및 강의평가",
+      "name_en": "Grade and Lecture Evaluation",
+      "parent_id": "sjpt.class_grade",
+      "url": null,
+      "selector": "#menu-grade-eval",
+      "description": "Submenu with grade inquiry pages and course evaluation.",
+      "keywords": [
+        "baho va baholash",
+        "grades and evaluation",
+        "성적평가"
+      ]
+    },
+    {
+      "id": "sjpt.grade_current",
+      "site": "sjpt",
+      "name_ko": "금학기 성적조회",
+      "name_en": "Current Semester Grade Inquiry",
+      "parent_id": "sjpt.grade_eval",
+      "url": null,
+      "selector": "a[data-menu='grade-current']",
+      "description": "See your grades and GPA for this semester. Grades, marks, scores, results.",
+      "keywords": [
+        "baholar",
+        "baholarim",
+        "joriy baholar",
+        "semestr baholari",
+        "grades",
+        "my grades",
+        "current grades",
+        "gpa",
+        "성적",
+        "성적조회",
+        "학점",
+        "이번 학기 성적"
+      ]
+    },
+    {
+      "id": "sjpt.lecture_eval",
+      "site": "sjpt",
+      "name_ko": "강의평가",
+      "name_en": "Lecture Evaluation",
+      "parent_id": "sjpt.grade_eval",
+      "url": null,
+      "selector": "a[data-menu='lecture-eval']",
+      "description": "Rate your courses and professors. Usually required before grades are shown.",
+      "keywords": [
+        "kursni baholash",
+        "o'qituvchini baholash",
+        "so'rovnoma",
+        "course evaluation",
+        "rate professor",
+        "survey",
+        "강의평가",
+        "수업평가",
+        "설문"
+      ]
+    },
+    {
+      "id": "sjpt.grade_history",
+      "site": "sjpt",
+      "name_ko": "기이수성적조회",
+      "name_en": "Completed Course Grade Inquiry",
+      "parent_id": "sjpt.grade_eval",
+      "url": null,
+      "selector": "a[data-menu='grade-history']",
+      "description": "All grades from previous semesters, total credits, cumulative GPA, transcript.",
+      "keywords": [
+        "oldingi baholar",
+        "barcha baholar",
+        "transkript",
+        "umumiy gpa",
+        "all grades",
+        "past grades",
+        "transcript",
+        "cumulative gpa",
+        "기이수성적",
+        "전체성적",
+        "누적학점"
+      ]
+    },
+    {
+      "id": "sjpt.timetable",
+      "site": "sjpt",
+      "name_ko": "수강신청내역 및 시간표",
+      "name_en": "Registered Courses and Timetable",
+      "parent_id": "sjpt.class_grade",
+      "url": null,
+      "selector": "a[data-menu='timetable']",
+      "description": "Your registered courses this semester and the weekly class schedule with rooms.",
+      "keywords": [
+        "dars jadvali",
+        "jadval",
+        "timetable",
+        "schedule",
+        "class schedule",
+        "registered courses",
+        "시간표",
+        "수강신청",
+        "수강내역"
+      ]
+    },
+    {
+      "id": "sjpt.student_records",
+      "site": "sjpt",
+      "name_ko": "학적",
+      "name_en": "Student Records",
+      "parent_id": "portal.sjpt",
+      "url": null,
+      "selector": "#menu-student-records",
+      "description": "Menu group for student status: enrollment, leave of absence, personal info.",
+      "keywords": [
+        "talaba ma'lumotlari",
+        "student status",
+        "학적"
+      ]
+    },
+    {
+      "id": "sjpt.student_record_view",
+      "site": "sjpt",
+      "name_ko": "학적부 조회",
+      "name_en": "Student Record Inquiry",
+      "parent_id": "sjpt.student_records",
+      "url": null,
+      "selector": "a[data-menu='student-record-view']",
+      "description": "View your student status, major, year and contact information.",
+      "keywords": [
+        "shaxsiy ma'lumotlar",
+        "talaba holati",
+        "personal info",
+        "student info",
+        "my major",
+        "학적부",
+        "개인정보",
+        "학적조회"
+      ]
+    },
+    {
+      "id": "sjpt.tuition",
+      "site": "sjpt",
+      "name_ko": "등록/장학",
+      "name_en": "Tuition/Scholarship",
+      "parent_id": "portal.sjpt",
+      "url": null,
+      "selector": "#menu-tuition",
+      "description": "Menu group for tuition payment and scholarships.",
+      "keywords": [
+        "kontrakt",
+        "to'lov",
+        "stipendiya",
+        "grant",
+        "tuition",
+        "scholarship",
+        "등록금",
+        "장학금",
+        "장학"
+      ]
+    },
+    {
+      "id": "sjpt.tuition_bill",
+      "site": "sjpt",
+      "name_ko": "등록금 고지서 출력",
+      "name_en": "Print Tuition Bill",
+      "parent_id": "sjpt.tuition",
+      "url": null,
+      "selector": "a[data-menu='tuition-bill']",
+      "description": "Print the tuition invoice with the bank account for payment. Fees, contract.",
+      "keywords": [
+        "kontrakt to'lovi",
+        "to'lov kvitansiyasi",
+        "invoice",
+        "tuition bill",
+        "pay tuition",
+        "등록금고지서",
+        "고지서",
+        "납부"
+      ]
+    },
+    {
+      "id": "ecampus.root",
+      "site": "ecampus",
+      "name_ko": "e-Campus",
+      "name_en": "e-Campus",
+      "parent_id": "portal.root",
+      "url": "https://ecampus.sejong.ac.kr",
+      "selector": "a[href*='ecampus']",
+      "description": "Learning management system: online lectures, course materials, assignments.",
+      "keywords": [
+        "ecampus",
+        "onlayn darslar",
+        "lms",
+        "online lectures",
+        "이캠퍼스",
+        "온라인강의"
+      ]
+    },
+    {
+      "id": "ecampus.my_courses",
+      "site": "ecampus",
+      "name_ko": "나의 강좌",
+      "name_en": "My Courses",
+      "parent_id": "ecampus.root",
+      "url": null,
+      "selector": "a[data-menu='my-courses']",
+      "description": "List of your enrolled courses on e-Campus with lecture videos and files.",
+      "keywords": [
+        "kurslarim",
+        "fanlarim",
+        "ma'ruzalar",
+        "my courses",
+        "lecture videos",
+        "course materials",
+        "나의강좌",
+        "내강좌",
+        "강의자료"
+      ]
+    },
+    {
+      "id": "ecampus.assignments",
+      "site": "ecampus",
+      "name_ko": "과제",
+      "name_en": "Assignments",
+      "parent_id": "ecampus.my_courses",
+      "url": null,
+      "selector": "a[data-menu='assignments']",
+      "description": "Submit homework and see assignment deadlines for a course.",
+      "keywords": [
+        "topshiriq",
+        "topshiriqlar",
+        "uy vazifasi",
+        "homework",
+        "assignment",
+        "deadline",
+        "과제",
+        "과제제출"
+      ]
+    },
+    {
+      "id": "library.root",
+      "site": "library",
+      "name_ko": "학술정보원",
+      "name_en": "Academic Information Center (Library)",
+      "parent_id": "portal.root",
+      "url": "https://library.sejong.ac.kr",
+      "selector": "a[href*='library']",
+      "description": "University library website: catalog search, loans, study rooms.",
+      "keywords": [
+        "kutubxona",
+        "library",
+        "books",
+        "도서관"
+      ]
+    },
+    {
+      "id": "library.my_library",
+      "site": "library",
+      "name_ko": "내 서재",
+      "name_en": "My Library",
+      "parent_id": "library.root",
+      "url": null,
+      "selector": "#menu-my-library",
+      "description": "Your personal library account area.",
+      "keywords": [
+        "mening kutubxonam",
+        "kutubxona hisobim",
+        "library account",
+        "내서재"
+      ]
+    },
+    {
+      "id": "library.loans",
+      "site": "library",
+      "name_ko": "대출현황",
+      "name_en": "Current Loans",
+      "parent_id": "library.my_library",
+      "url": null,
+      "selector": "a[data-menu='loans']",
+      "description": "Books you have borrowed, due dates, renewals, overdue books.",
+      "keywords": [
+        "olingan kitoblar",
+        "kitoblarim",
+        "kitob qaytarish",
+        "borrowed books",
+        "loans",
+        "due date",
+        "renew",
+        "대출",
+        "대출현황",
+        "반납",
+        "연장"
+      ]
+    },
+    {
+      "id": "library.room_booking",
+      "site": "library",
+      "name_ko": "시설예약",
+      "name_en": "Facility Reservation",
+      "parent_id": "library.root",
+      "url": null,
+      "selector": "a[data-menu='room-booking']",
+      "description": "Book a study room or seat in the library.",
+      "keywords": [
+        "xona band qilish",
+        "o'quv xonasi",
+        "joy band qilish",
+        "study room",
+        "book a room",
+        "seat reservation",
+        "스터디룸",
+        "좌석예약"
+      ]
+    }
+  ]
+}

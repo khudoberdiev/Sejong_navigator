@@ -227,5 +227,72 @@ test("import ignores junk and merges into existing data", () => {
   eq(S.mergeMenuMap(s, exported.items).length, exported.items.length); // a bare array works too
 });
 
+// ------------------------------------------------------------------ guide state
+
+const ROUTE = [
+  { id: "portal.root", name_ko: "세종대학교 포털" },
+  { id: "portal.sjpt", name_ko: "학사정보시스템" },
+  { id: "sjpt.grades", name_ko: "수업/성적" },
+  { id: "sjpt.grade_current", name_ko: "금학기 성적조회" },
+];
+
+test("newGuide starts at step 1 and targets the last item", () => {
+  const g = S.newGuide(ROUTE, null, 123);
+  eq([g.step, g.targetId, g.startedAt, g.route.length], [1, "sjpt.grade_current", 123, 4]);
+  ok(S.isGuide(g));
+  eq(S.newGuide(ROUTE, "explicit", 1).targetId, "explicit");
+});
+
+test("isGuide rejects junk and routes with nothing to click", () => {
+  ok(!S.isGuide(null));
+  ok(!S.isGuide({ route: "x", step: 1 }));
+  ok(!S.isGuide(S.newGuide([ROUTE[0]], null, 1)));
+  ok(!S.isGuide(S.newGuide(undefined, null, 1)));
+});
+
+test("pickStep highlights the deepest visible step and only moves forward", () => {
+  const g = Object.assign(S.newGuide(ROUTE, null, 1), { step: 2 });
+  eq(S.pickStep(g, []), { show: -1, step: 2 });
+  eq(S.pickStep(g, [2]), { show: 2, step: 2 });
+  eq(S.pickStep(g, [1, 3, 2]), { show: 3, step: 3 });   // user went ahead
+  eq(S.pickStep(g, [1]), { show: 1, step: 2 });         // only a parent visible: hint, keep step
+  eq(S.pickStep(g, [0, 9, -1, "2", null]), { show: -1, step: 2 }); // root and junk ignored
+});
+
+test("advanceGuide moves to the next step, finishes on the last", () => {
+  const g = S.newGuide(ROUTE, null, 1);
+  const a = S.advanceGuide(g, 1);
+  eq([a.guide.step, a.finished], [2, false]);
+  eq(g.step, 1); // input not mutated
+  eq(S.advanceGuide(a.guide, 1).guide.step, 2);  // clicking a parent again never goes back
+  eq(S.advanceGuide(a.guide, 3).finished, true);
+  eq(S.advanceGuide(a.guide, 7), { guide: a.guide, finished: false });
+  eq(S.advanceGuide(a.guide, 0).finished, false);
+});
+
+test("guideStatus per tab", () => {
+  const g = Object.assign(S.newGuide(ROUTE, null, 5), { step: 2 });
+  const view = (shown, extra) => Object.assign({ startedAt: 5, shown, sejong: true }, extra);
+  eq(S.guideStatus(g, null), { kind: "pending", index: 2 });
+  eq(S.guideStatus(g, view(2, { startedAt: 4 })), { kind: "pending", index: 2 }); // stale view of an old guide
+  eq(S.guideStatus(g, view(-1, { sejong: false })), { kind: "other-tab", index: 2 });
+  eq(S.guideStatus(g, view(-1)), { kind: "missing", index: 2 });
+  eq(S.guideStatus(g, view(1)), { kind: "hint", index: 1 });
+  eq(S.guideStatus(g, view(2)), { kind: "next", index: 2 });
+  eq(S.guideStatus(g, view(3)), { kind: "here", index: 3 });
+});
+
+test("a whole portal → SJPT walk survives a JSON round trip (storage)", () => {
+  let g = S.newGuide(ROUTE, null, 9);
+  const store = (x) => JSON.parse(JSON.stringify(x)); // what chrome.storage does to values
+  g = store(S.advanceGuide(g, S.pickStep(g, [1]).show).guide);   // portal: click 학사정보시스템
+  // new SJPT tab loads: reads the same guide
+  const p = S.pickStep(g, [2]);
+  eq(p, { show: 2, step: 2 });
+  g = store(S.advanceGuide(g, p.show).guide);
+  eq(g.step, 3);
+  eq(S.advanceGuide(g, S.pickStep(g, [3]).show).finished, true);
+});
+
 print("RESULT " + JSON.stringify({ passed, failures }));
 print("EXPORT " + JSON.stringify(exported));

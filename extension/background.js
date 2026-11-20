@@ -1,13 +1,20 @@
 // AI-generated — to be rewritten by me
-// Service worker. Three jobs:
+// Service worker. Five jobs:
 //   1. The only code that talks to the backend (BACKEND_URL in config.js).
 //   2. Keeps the menu recorder's data in chrome.storage.local and merges what content scripts send.
-//   3. Runs the on-page guide: asks every frame of the tab which path step it can see,
-//      then tells the frame with the deepest visible step to highlight it.
+//   3. Runs the on-page guide: keeps the active guide in chrome.storage.session, asks every
+//      frame of a tab which path steps it can see, tells one frame to highlight the step,
+//      and advances the step when the user clicks the highlight.
+//   4. Serves the Korean → English label pairs for Keep-English.
+//   5. Relays pop-ups found in any frame to the top frame; optional self-hosted translation.
 importScripts("config.js", "shared.js");
 
 const { BACKEND_URL } = self.SEJONG_CONFIG;
 const S = self.SejongShared;
+
+// The UI (popup.html) lives in Chrome's side panel, so it stays open while you click the page.
+// The toolbar icon opens/closes it. Calling this again on every worker start is harmless.
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
 // ------------------------------------------------------------------ 1. backend
 
@@ -86,51 +93,156 @@ async function scanTab(tabId) {
 
 // ------------------------------------------------------------------ 3. guide
 
-const guideKey = (tabId) => `guide:${tabId}`;
+// ONE active guide for the whole browser, in chrome.storage.session, so it survives page
+// loads, this worker going to sleep, and SSO opening SJPT in a new tab. This worker is the
+// only writer; the side panel reads and watches these keys.
+//   activeGuide        { route, step, targetId, startedAt }       (S.newGuide)
+//   guideView:<tabId>  { startedAt, shown, step, sejong, at }     what that tab highlights now
+//   guideLast          { outcome: "finished" | "stopped", targetId, name, at }
+const GUIDE = "activeGuide";
+const viewKey = (tabId) => `guideView:${tabId}`;
+const SEJONG_TABS = ["portal", "sjpt", "ecampus", "library"].map((h) => `*://${h}.sejong.ac.kr/*`);
 
-async function getGuide(tabId) {
-  const key = guideKey(tabId);
-  return (await chrome.storage.session.get(key))[key] || null;
+let guideQueue = Promise.resolve();
+// change(guide) returns the new guide, null to delete it, or undefined to keep it as is.
+function updateGuide(change) {
+  const run = guideQueue.then(async () => {
+    const before = (await chrome.storage.session.get(GUIDE))[GUIDE] || null;
+    const after = change(before);
+    if (after === undefined) return before;
+    if (after === null) await chrome.storage.session.remove(GUIDE);
+    else await chrome.storage.session.set({ [GUIDE]: after });
+    return after;
+  });
+  guideQueue = run.catch(() => {});
+  return run;
 }
+const getGuide = () => updateGuide(() => undefined);
 
 async function runGuide(tabId) {
-  const path = await getGuide(tabId);
-  if (!path) return { active: false };
-  const frames = await framesOf(tabId);
-  const probes = await Promise.all(frames.map(async (f) => {
-    const answer = await sendToFrame(tabId, f.frameId, { type: "guide:probe", path });
-    return answer ? { frameId: f.frameId, index: answer.index } : null;
-  }));
-  let best = null;
-  for (const p of probes) {
-    if (p && p.index >= 0 && (!best || p.index > best.index)) best = p;
-  }
-  await Promise.all(frames.map((f) => sendToFrame(tabId, f.frameId, best && f.frameId === best.frameId
-    ? { type: "guide:show", path, index: best.index }
-    : { type: "guide:clear", guiding: true })));
-  return { active: true, index: best ? best.index : -1, total: path.length };
-}
-
-// Page loads and clicks in several frames ask for a refresh at almost the same time: debounce.
-const refreshTimers = {};
-function scheduleGuide(tabId) {
-  clearTimeout(refreshTimers[tabId]);
-  refreshTimers[tabId] = setTimeout(() => runGuide(tabId).catch(() => {}), 400);
-}
-
-async function stopGuide(tabId) {
-  await chrome.storage.session.remove(guideKey(tabId));
+  const guide = await getGuide();
+  if (!S.isGuide(guide)) return { active: false };
   const frames = await framesOf(tabId).catch(() => []);
-  await Promise.all(frames.map((f) => sendToFrame(tabId, f.frameId, { type: "guide:clear", guiding: false })));
+  const probes = (await Promise.all(frames.map(async (f) => {
+    const answer = await sendToFrame(tabId, f.frameId, { type: "guide:probe", path: guide.route });
+    return answer ? { frameId: f.frameId, visible: answer.visible || [] } : null;
+  }))).filter(Boolean);
+  const pick = S.pickStep(guide, probes.flatMap((p) => p.visible));
+  const target = pick.show >= 0 ? probes.find((p) => p.visible.includes(pick.show)) : null;
+  // Save a forward jump, unless the guide was stopped or replaced while we were probing.
+  const now = await updateGuide((g) => (g && g.startedAt === guide.startedAt && pick.step > g.step
+    ? Object.assign({}, g, { step: pick.step }) : undefined));
+  if (!now || now.startedAt !== guide.startedAt) return { active: false };
+  await Promise.all(frames.map((f) => sendToFrame(tabId, f.frameId, target && f.frameId === target.frameId
+    ? { type: "guide:show", path: guide.route, index: pick.show, startedAt: guide.startedAt }
+    : { type: "guide:clear", guiding: true })));
+  const view = { startedAt: guide.startedAt, shown: pick.show, step: now.step, sejong: probes.length > 0, at: Date.now() };
+  await chrome.storage.session.set({ [viewKey(tabId)]: view });
+  return Object.assign({ active: true, total: guide.route.length }, view);
 }
 
-// A menu link that opens a new tab (portal → SJPT) keeps guiding in that tab.
-chrome.tabs.onCreated.addListener(async (tab) => {
-  if (tab.openerTabId === undefined) return;
-  const path = await getGuide(tab.openerTabId);
-  if (path) await chrome.storage.session.set({ [guideKey(tab.id)]: path });
-});
-chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(guideKey(tabId)));
+// Page loads and clicks in several frames ask at almost the same time: debounce. Menus that
+// are built by script (SJPT) may not exist yet when the page loads: look again a few times.
+const GUIDE_DELAYS = [400, 1000, 2500, 5000];
+const refreshTimers = {};
+function scheduleGuide(tabId, attempt = 0) {
+  clearTimeout(refreshTimers[tabId]);
+  refreshTimers[tabId] = setTimeout(async () => {
+    const r = await runGuide(tabId).catch(() => null);
+    // Retry while the step to click is not on screen yet (nothing found, or only a parent).
+    if (r && r.active && r.sejong && r.shown < r.step && attempt + 1 < GUIDE_DELAYS.length) scheduleGuide(tabId, attempt + 1);
+  }, GUIDE_DELAYS[attempt]);
+}
+
+async function clearGuideEverywhere() {
+  const all = await chrome.storage.session.get(null);
+  await chrome.storage.session.remove(Object.keys(all).filter((k) => k.startsWith("guideView:")));
+  const tabs = await chrome.tabs.query({ url: SEJONG_TABS }).catch(() => []);
+  await Promise.all(tabs.map(async (tab) => {
+    const frames = await framesOf(tab.id).catch(() => []);
+    await Promise.all(frames.map((f) => sendToFrame(tab.id, f.frameId, { type: "guide:clear", guiding: false })));
+  }));
+}
+
+async function startGuide(tabId, path, targetId) {
+  const guide = S.newGuide(path, targetId, Date.now());
+  if (!S.isGuide(guide)) throw new Error("This item has no click path to follow.");
+  await updateGuide(() => null);
+  await clearGuideEverywhere();
+  await chrome.storage.session.remove("guideLast");
+  await updateGuide(() => guide);
+  return runGuide(tabId);
+}
+
+async function endGuide(outcome) {
+  let before = null;
+  await updateGuide((g) => { before = g; return null; });
+  await clearGuideEverywhere();
+  if (S.isGuide(before)) {
+    const target = before.route[before.route.length - 1];
+    await chrome.storage.session.set({ guideLast: {
+      outcome, targetId: before.targetId, name: target.name_ko || target.name_en || target.id, at: Date.now(),
+    } });
+  }
+  return true;
+}
+
+async function guideClicked(msg, sender) {
+  let finished = false;
+  await updateGuide((g) => {
+    if (!S.isGuide(g) || g.startedAt !== msg.startedAt) return undefined; // a click on an old guide's highlight
+    const r = S.advanceGuide(g, msg.index);
+    finished = r.finished;
+    return finished ? undefined : r.guide;
+  });
+  if (finished) await endGuide("finished");
+  else if (sender.tab) scheduleGuide(sender.tab.id);
+  return { finished };
+}
+
+async function refreshIfGuiding(tabId) {
+  if (tabId !== undefined && S.isGuide(await getGuide())) scheduleGuide(tabId);
+}
+// Switching tabs, and top-level page loads (also non-Sejong pages, so the panel can say so).
+chrome.tabs.onActivated.addListener(({ tabId }) => refreshIfGuiding(tabId));
+chrome.webNavigation.onCompleted.addListener(({ tabId, frameId }) => { if (frameId === 0) refreshIfGuiding(tabId); });
+chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(viewKey(tabId)));
+
+// ------------------------------------------------------------------ 4. keep-English labels
+
+// The menu map bundled with the extension (scripts/sync_extension_data.py copies
+// data/menu_map.json here), plus recorded items whose English name you filled in.
+let bundledItems = null;
+async function labelPairs() {
+  if (!bundledItems) {
+    const res = await fetch(chrome.runtime.getURL("data/menu_map.json"));
+    bundledItems = (await res.json()).items || [];
+  }
+  const { recStore } = await chrome.storage.local.get("recStore");
+  const pairs = new Map();
+  for (const item of bundledItems.concat(recStore ? Object.values(recStore.items) : [])) {
+    const ko = S.cleanLabel(item.name_ko);
+    const en = S.cleanLabel(item.name_en);
+    if (ko && en && ko !== en && !pairs.has(ko)) pairs.set(ko, en);
+  }
+  return [...pairs];
+}
+
+// ------------------------------------------------------------------ 5. pop-up translation fallback
+
+// Only a LibreTranslate that YOU run (TRANSLATE_URL in config.js). Never a public service:
+// pop-ups can contain personal data.
+async function translateLibre(text) {
+  const base = self.SEJONG_CONFIG.TRANSLATE_URL;
+  if (!base) return null;
+  const res = await fetch(`${base}/translate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ q: text, source: "ko", target: "en", format: "text" }),
+  });
+  if (!res.ok) throw new Error(`LibreTranslate: HTTP ${res.status}`);
+  return (await res.json()).translatedText || null;
+}
 
 // ------------------------------------------------------------------ messages
 
@@ -158,15 +270,22 @@ const HANDLERS = {
   "rec:export": () => withStore((store) => S.toMenuMap(store)),
   "rec:import": (m) => withStore((store) => S.mergeMenuMap(store, m.json).length),
 
-  "guide:start": async (m) => {
-    await chrome.storage.session.set({ [guideKey(m.tabId)]: m.path });
-    return runGuide(m.tabId);
-  },
-  "guide:stop": (m) => stopGuide(m.tabId),
-  "guide:refresh": async (_m, sender) => {
-    if (sender.tab && (await getGuide(sender.tab.id))) scheduleGuide(sender.tab.id);
+  "guide:start": (m) => startGuide(m.tabId, m.path, m.targetId),
+  "guide:stop": () => endGuide("stopped"),
+  "guide:clicked": (m, sender) => guideClicked(m, sender),
+  // From a content script (page or frame loaded, click) or from the panel ({tabId}).
+  "guide:refresh": async (m, sender) => {
+    await refreshIfGuiding(sender.tab ? sender.tab.id : m.tabId);
     return true;
   },
+
+  "labels:get": () => labelPairs(),
+  // Any frame found a pop-up: the TOP frame translates it and shows the overlay.
+  "popup:found": async (m, sender) => {
+    if (sender.tab) await sendToFrame(sender.tab.id, 0, { type: "popup:show", text: m.text, kind: m.kind });
+    return true;
+  },
+  "translate:libre": (m) => translateLibre(m.text),
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

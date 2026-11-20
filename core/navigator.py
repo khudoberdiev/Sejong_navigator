@@ -34,6 +34,7 @@ from ml.embedder import Embedder
 from ml.vector_index import VectorIndex
 
 SUGGEST_LIMIT = 10
+MAX_K = 50             # search() returns at most this many results
 MIN_SIMILARITY = 0.6   # fuzzy matches below this count as no match
 MIN_EXACT_LEN = 2      # shorter normalized terms are ignored for exact matching
 MIN_FUZZY_LEN = 3      # shorter normalized terms are never matched fuzzily
@@ -171,7 +172,7 @@ def search(query: str, k: int) -> list[dict]:
 
     Args:
         query: User text. It must not be empty after normalizing.
-        k: Maximum number of results, k >= 1.
+        k: Maximum number of results, 1 <= k <= MAX_K (50).
 
     Returns:
         Up to k dicts, best first. Each has every MenuItem field plus
@@ -180,15 +181,15 @@ def search(query: str, k: int) -> list[dict]:
         something, so check the score; with w = 0, [] means no lexical match.
 
     Raises:
-        ValueError: if the query is empty or k < 1.
+        ValueError: if the query is empty or k is outside 1..MAX_K.
     """
     return search_with_weight(query, k, SEMANTIC_WEIGHT)
 
 
 def search_with_weight(query: str, k: int, weight: float) -> list[dict]:
     """search() with an explicit w: 0 = lexical only, 1 = semantic only. Used by eval/."""
-    if k < 1:
-        raise ValueError("k must be >= 1")
+    if not 1 <= k <= MAX_K:
+        raise ValueError(f"k must be between 1 and {MAX_K}")
     if not 0.0 <= weight <= 1.0:
         raise ValueError("weight must be in [0, 1]")
     q = normalize(query)

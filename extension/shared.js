@@ -10,6 +10,8 @@
 //
 // Item ids are a hash of (site + the label path inside the page's menu), e.g. "sjpt.m1x9k2a".
 // The same menu entry recorded again on another page gets the same id, so recordings merge.
+//
+// Guide state (newGuide, pickStep, advanceGuide, guideStatus): see "guide state" below.
 (function (root) {
   "use strict";
 
@@ -309,9 +311,66 @@
     return created;
   }
 
+  // ------------------------------------------------------------------ guide state
+
+  // The active guide, kept in chrome.storage.session ("activeGuide") by background.js.
+  // There is ONE guide for the whole browser, so it survives page loads and SSO redirects
+  // that open SJPT in a new tab (Chrome does not always tell us which tab opened which).
+  //   { route: [items], step, targetId, startedAt }
+  // route[0] is the site root and is never highlighted; step is the index the user must click next.
+  function newGuide(route, targetId, now) {
+    const list = Array.isArray(route) ? route : [];
+    const last = list[list.length - 1];
+    return {
+      route: list,
+      step: Math.min(1, Math.max(0, list.length - 1)),
+      targetId: targetId || (last && last.id) || null,
+      startedAt: now,
+    };
+  }
+
+  function isGuide(guide) {
+    return !!guide && Array.isArray(guide.route) && guide.route.length > 1 && Number.isInteger(guide.step);
+  }
+
+  // visible: step indices found on a tab (any frame). Highlight the deepest one; the saved
+  // step only moves forward (the user may have gone ahead by themselves), never back.
+  //   → { show: index to highlight or -1, step: new saved step }
+  function pickStep(guide, visible) {
+    const last = guide.route.length - 1;
+    const seen = (visible || []).filter((i) => Number.isInteger(i) && i >= 1 && i <= last);
+    if (!seen.length) return { show: -1, step: guide.step };
+    const deepest = Math.max.apply(null, seen);
+    return { show: deepest, step: Math.max(guide.step, deepest) };
+  }
+
+  // The user clicked highlighted step `index`. → { guide: updated guide, finished }
+  // Clicking the final step finishes the guide. Clicking an earlier one (a parent shown as a
+  // hint) never moves the saved step back.
+  function advanceGuide(guide, index) {
+    const last = guide.route.length - 1;
+    if (!Number.isInteger(index) || index < 1 || index > last) return { guide, finished: false };
+    if (index === last) return { guide, finished: true };
+    const step = Math.min(last, Math.max(guide.step, index + 1));
+    return { guide: Object.assign({}, guide, { step }), finished: false };
+  }
+
+  // What the side panel says for one tab. view = that tab's "guideView:<tabId>" or null.
+  //   → { kind, index }  kind: pending | other-tab | missing | hint | next | here
+  function guideStatus(guide, view) {
+    const last = guide.route.length - 1;
+    if (!view || view.startedAt !== guide.startedAt) return { kind: "pending", index: guide.step };
+    if (!view.sejong) return { kind: "other-tab", index: guide.step };
+    if (view.shown < 0) return { kind: "missing", index: guide.step };
+    if (view.shown === last) return { kind: "here", index: last };
+    if (view.shown < guide.step) return { kind: "hint", index: view.shown };
+    return { kind: "next", index: view.shown };
+  }
+
   root.SejongShared = Object.freeze({
     SITES, siteForHost, rootId, isRootId, cleanLabel, hasHangul, isSafeLabel, sanitizeUrl,
     stableId, newStore, applyClick, applyScan, undo, deleteItem, displayName, listForReview,
     toMenuMap, mergeMenuMap,
+    newGuide, isGuide, pickStep, advanceGuide, guideStatus,
   });
 })(globalThis);

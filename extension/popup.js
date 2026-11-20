@@ -1,10 +1,14 @@
 // AI-generated — to be rewritten by me
-// Popup UI. Talks only to background.js (which talks to the backend and the pages).
+// Side panel UI (popup.html, shown in Chrome's side panel). Talks only to background.js
+// (which talks to the backend and the pages).
 //   Search tab: live suggestions → top-3 results with scores → click path as ko/en breadcrumbs
-//               → "Show me on this page" starts the on-page guide.
+//               → "Show me on this page" starts the on-page guide. The running guide (in
+//               chrome.storage.session) is restored when the panel opens and re-rendered on
+//               every change and tab switch.
 //   Record tab: controls for the menu recorder, review list, export/import.
 
 const { BACKEND_URL, ROOT_ID, SEARCH_K } = window.SEJONG_CONFIG;
+const S = window.SejongShared;
 const $ = (id) => document.getElementById(id);
 
 async function send(message) {
@@ -113,7 +117,8 @@ $("q").addEventListener("blur", () => setTimeout(hideSuggestions, 100));
 
 // ---------------------------------------------------------------- search: results and route
 
-let currentPath = [];
+let currentPath = [];     // the click path shown in the panel
+let currentTarget = null;  // id of the item it leads to
 
 async function runSearch(text) {
   if (!text.trim()) return;
@@ -145,8 +150,10 @@ async function runSearch(text) {
   }
 }
 
-function renderCrumbs(ol, path, highlightIndex = -1) {
-  ol.replaceChildren(...path.map((item, i) => el("li", { class: i === highlightIndex ? "current" : "" },
+function renderCrumbs(ol, path, highlightIndex = -1, doneBefore = 0) {
+  ol.replaceChildren(...path.map((item, i) => el("li", {
+    class: i === highlightIndex ? "current" : (i > 0 && i < doneBefore ? "done" : ""),
+  },
     el("span", { class: "crumb" },
       el("span", {}, item.name_ko || item.name_en || item.id),
       item.name_ko && item.name_en ? el("span", { class: "en" }, item.name_en) : null))));
@@ -156,49 +163,117 @@ async function showRoute(item) {
   try {
     // route() returns the full items: names for the breadcrumbs, selector/names for the guide
     currentPath = await send({ type: "api:route", from: ROOT_ID, to: item.id });
-    $("route").hidden = false;
-    $("guide-open").hidden = true;
-    $("guide-status").textContent = currentPath.length ? "" : "No click path to this item.";
-    renderCrumbs($("crumbs"), currentPath);
+    currentTarget = item.id;
+    renderGuide();
   } catch (e) {
     showBackendError(e);
   }
 }
 
-$("guide-start").addEventListener("click", async () => {
-  if (!currentPath.length) return;
-  const status = $("guide-status");
-  try {
-    const result = await send({ type: "guide:start", tabId: await activeTabId(), path: currentPath });
-    renderCrumbs($("crumbs"), currentPath, result.index);
-    if (result.index >= 0) {
-      const step = currentPath[result.index];
-      status.textContent = result.index === currentPath.length - 1
-        ? `You are there: ${step.name_ko || step.name_en} is highlighted.`
-        : `Step ${result.index} of ${currentPath.length - 1}: click the highlighted “${step.name_ko || step.name_en}”.`;
-      $("guide-open").hidden = true;
-    } else {
-      // Nothing from the path is visible here: offer the deepest step that has a URL.
-      const withUrl = [...currentPath].reverse().find((s) => s.url);
-      status.textContent = "No step of this path is visible on the current page.";
-      if (withUrl) {
-        $("guide-open").hidden = false;
-        $("guide-open").textContent = `Open ${withUrl.name_ko || withUrl.name_en}`;
-        $("guide-open").onclick = async () => {
-          await chrome.tabs.update(await activeTabId(), { url: withUrl.url });
-          window.close(); // the guide continues on the new page
-        };
-      }
-    }
-  } catch (e) {
-    status.textContent = `Cannot guide on this tab (${e.message}). Open a Sejong page first.`;
+// ---------------------------------------------------------------- guide (state lives in storage)
+
+// background.js owns the guide and writes it to chrome.storage.session; the panel only
+// renders it: on open, on every storage change, and when the active tab changes.
+let panelWindowId = null;
+const nameOf = (item) => (item && (item.name_ko || item.name_en || item.id)) || "";
+
+async function guideState() {
+  const tabId = await activeTabId();
+  const viewKey = tabId === undefined ? null : `guideView:${tabId}`;
+  const s = await chrome.storage.session.get(["activeGuide", "guideLast"].concat(viewKey ? [viewKey] : []));
+  return { guide: S.isGuide(s.activeGuide) ? s.activeGuide : null, last: s.guideLast || null, view: viewKey ? s[viewKey] : null };
+}
+
+function offerOpen(route) {
+  // Nothing from the path is visible here: offer the deepest step that has a URL.
+  const withUrl = [...route].reverse().find((s) => s.url);
+  if (!withUrl) return;
+  $("guide-open").hidden = false;
+  $("guide-open").textContent = `Open ${nameOf(withUrl)}`;
+  $("guide-open").onclick = async () => {
+    // The panel stays open; the guide continues on the new page by itself.
+    await chrome.tabs.update(await activeTabId(), { url: withUrl.url });
+    $("guide-open").hidden = true;
+  };
+}
+
+function guideText(guide, info) {
+  const last = guide.route.length - 1;
+  const step = guide.route[guide.step];
+  const shown = guide.route[info.index];
+  const of = `Step ${guide.step} of ${last}`;
+  switch (info.kind) {
+    case "here": return `You are there: “${nameOf(shown)}” is highlighted. Click it to finish.`;
+    case "next": return `Step ${info.index} of ${last}: click the highlighted “${nameOf(shown)}”.`;
+    case "hint": return `${of}: open “${nameOf(shown)}” first (highlighted), then click “${nameOf(step)}”.`;
+    case "missing": return `${of}: “${nameOf(step)}” is not visible on this page yet.`;
+    case "other-tab": return `${of}: “${nameOf(step)}”. This tab is not a Sejong page; switch to the Sejong tab.`;
+    default: return `${of}: “${nameOf(step)}”. Checking this tab…`;
   }
+}
+
+let renderToken = 0;
+async function renderGuide() {
+  const token = ++renderToken;
+  let state;
+  try { state = await guideState(); } catch (e) { return; }
+  if (token !== renderToken) return; // a newer render is on its way
+  const { guide, last, view } = state;
+  if (guide && !currentTarget) { // panel just opened: restore the running guide
+    currentPath = guide.route;
+    currentTarget = guide.targetId;
+  }
+  $("guide-open").hidden = true;
+  if (!currentPath.length) { $("route").hidden = true; return; }
+  $("route").hidden = false;
+
+  const following = !!guide && guide.targetId === currentTarget;
+  $("guide-start").hidden = following;
+  $("guide-stop").hidden = !following;
+  const status = $("guide-status");
+  if (following) {
+    const info = S.guideStatus(guide, view);
+    renderCrumbs($("crumbs"), guide.route, info.index, guide.step);
+    status.textContent = guideText(guide, info);
+    if (info.kind === "missing" || info.kind === "other-tab") offerOpen(guide.route);
+    return;
+  }
+  renderCrumbs($("crumbs"), currentPath);
+  if (currentPath.length < 2) status.textContent = "No click path to this item.";
+  else if (guide) status.textContent = `A guide to “${nameOf(guide.route[guide.route.length - 1])}” is running. “Show me” replaces it.`;
+  else if (last && last.targetId === currentTarget) {
+    status.textContent = last.outcome === "finished" ? `Done: you reached “${last.name}”.` : "Guide stopped.";
+  } else status.textContent = "";
+}
+
+$("guide-start").addEventListener("click", async () => {
+  if (currentPath.length < 2) return;
+  try {
+    await send({ type: "guide:start", tabId: await activeTabId(), path: currentPath, targetId: currentTarget });
+  } catch (e) {
+    $("guide-status").textContent = `Cannot guide on this tab (${e.message}). Open a Sejong page first.`;
+    return;
+  }
+  renderGuide();
 });
 
 $("guide-stop").addEventListener("click", async () => {
-  await send({ type: "guide:stop", tabId: await activeTabId() }).catch(() => {});
-  $("guide-status").textContent = "Guide stopped.";
-  renderCrumbs($("crumbs"), currentPath);
+  await send({ type: "guide:stop" }).catch(() => {});
+  renderGuide();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "session") return;
+  if (Object.keys(changes).some((k) => k === "activeGuide" || k === "guideLast" || k.startsWith("guideView:"))) renderGuide();
+});
+
+// The panel's window: show the guide status of whichever tab is active there.
+chrome.windows.getCurrent().then((w) => { panelWindowId = w.id; }).catch(() => {});
+chrome.tabs.onActivated.addListener(({ windowId }) => {
+  if (windowId === panelWindowId) renderGuide(); // background.js re-checks the tab and updates its view
+});
+chrome.tabs.onUpdated.addListener((_tabId, info, tab) => {
+  if (tab.active && tab.windowId === panelWindowId && info.status === "complete") renderGuide();
 });
 
 // ---------------------------------------------------------------- recorder
@@ -230,7 +305,7 @@ $("rec-toggle").addEventListener("click", async () => {
   await send({ type: "rec:setRecording", on: !state.recording });
   $("rec-status").textContent = state.recording
     ? "Recording stopped."
-    : "Recording. Close this popup and click through the menu, from the top level down to the page you want.";
+    : "Recording. Click through the menu on the page, from the top level down to the page you want.";
   refreshRecorder();
 });
 
@@ -291,9 +366,33 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && (changes.recStore || changes.recording) && !$("tab-record").hidden) refreshRecorder();
 });
 
+// ---------------------------------------------------------------- settings (both on by default)
+
+for (const [id, key] of [["opt-english", "keepEnglish"], ["opt-translate", "translatePopups"]]) {
+  chrome.storage.local.get(key).then((r) => { $(id).checked = r[key] !== false; });
+  $(id).addEventListener("change", () => chrome.storage.local.set({ [key]: $(id).checked }));
+}
+
+// ---------------------------------------------------------------- close button
+
+// chrome.sidePanel.close() exists only from Chrome 141. Older Chrome: closing the
+// panel's own page with window.close() closes the panel.
+$("panel-close").addEventListener("click", async () => {
+  try {
+    if (chrome.sidePanel && chrome.sidePanel.close) {
+      const win = await chrome.windows.getCurrent();
+      await chrome.sidePanel.close({ windowId: win.id });
+      return;
+    }
+  } catch (e) { /* fall through */ }
+  window.close();
+});
+
 // ---------------------------------------------------------------- start
 
 let startTab = "search";
 try { startTab = localStorage.getItem("tab") || "search"; } catch (e) { /* ignore */ }
 showTab(startTab);
+renderGuide(); // restore a running guide
+activeTabId().then((tabId) => send({ type: "guide:refresh", tabId })).catch(() => {});
 send({ type: "api:health" }).catch(showBackendError);

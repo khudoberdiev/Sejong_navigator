@@ -7,4 +7,8 @@ globalThis.SEJONG_CONFIG = Object.freeze({
   BACKEND_URL: "http://127.0.0.1:8000",
   ROOT_ID: "portal.root", // every route starts here
   SEARCH_K: 3,            // results shown in the popup
+  // Pop-up translation, step 2 (step 1 is Chrome's on-device translator):
+  // a self-hosted LibreTranslate, e.g. "http://127.0.0.1:5000"
+  // (docker compose --profile translate up). Empty = not used.
+  TRANSLATE_URL: "",
 });

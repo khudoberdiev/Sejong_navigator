@@ -8,8 +8,20 @@
 //     * scan  – on request: walk the page's menu containers (nav, [role=menu], *menu*, gnb/lnb ...)
 //     * click – while recording: each click on a menu-like element is one step of a path
 //
-// GUIDE: finds the deepest step of the current route that is visible in this frame
-//   (by selector, else by exact Korean/English text) and highlights it with an outline + pointer.
+// GUIDE: reports which steps of the active route are visible in this frame (by selector,
+//   else by exact Korean/English text) and highlights the one background.js picks with an
+//   outline + pointer. On every page load it asks background.js for the active guide (kept in
+//   chrome.storage.session), so the highlight comes back after navigation and in new tabs.
+//   A click on the highlighted element advances the guide to the next step.
+//
+// KEEP-ENGLISH: after every page load (and whenever the menu changes) replaces Korean menu
+//   labels that are in the menu map with their English name. Hover shows the Korean original.
+//   Paused while recording, so recordings keep the real Korean labels.
+//
+// POP-UP TRANSLATION: a MutationObserver (in every frame) notices modal pop-ups; page_hook.js
+//   reports alert()/confirm() texts. The top frame translates Korean → English ON THIS
+//   COMPUTER (Chrome's built-in Translator API, or a self-hosted LibreTranslate) and shows
+//   an overlay. Nothing is sent to a third-party service.
 (() => {
   if (window.__sejongNavigator) return; // injected twice (about:blank frames)
   window.__sejongNavigator = true;
@@ -137,9 +149,20 @@
   // ---------------------------------------------------------------- recorder: clicks
 
   let recording = false;
-  chrome.storage.local.get("recording").then((r) => { recording = !!r.recording; });
+  const settings = { keepEnglish: true, translatePopups: true }; // both on unless switched off in the popup
+  chrome.storage.local.get(["recording", "keepEnglish", "translatePopups"]).then((r) => {
+    recording = !!r.recording;
+    settings.keepEnglish = r.keepEnglish !== false;
+    settings.translatePopups = r.translatePopups !== false;
+    updateEnglish();
+    startPopupWatch();
+  });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.recording) recording = !!changes.recording.newValue;
+    if (area !== "local") return;
+    if (changes.recording) recording = !!changes.recording.newValue;
+    if (changes.keepEnglish) settings.keepEnglish = changes.keepEnglish.newValue !== false;
+    if (changes.translatePopups) settings.translatePopups = changes.translatePopups.newValue !== false;
+    if (changes.recording || changes.keepEnglish) updateEnglish();
   });
 
   function flash(el, ok) {
@@ -166,7 +189,7 @@
 
   const HIGHLIGHT = "sejong-nav-highlight";
   let guiding = false;
-  let current = null; // {el, tip}
+  let current = null; // {el, tip, index, startedAt}
 
   function isVisible(el) {
     const rects = el.getClientRects();
@@ -199,12 +222,13 @@
     return best ? best.closest(STRONG_CLICKABLE) || best : null;
   }
 
-  // Index of the deepest path step visible in this frame, or -1. Step 0 (the portal root) is skipped.
-  function deepestVisible(path) {
-    for (let i = path.length - 1; i >= 1; i--) {
-      if (findElement(path[i])) return i;
+  // Indices of the path steps visible in this frame. Step 0 (the site root) is skipped.
+  function visibleSteps(path) {
+    const visible = [];
+    for (let i = 1; i < path.length; i++) {
+      if (findElement(path[i])) visible.push(i);
     }
-    return -1;
+    return visible;
   }
 
   function clearPointer() {
@@ -223,10 +247,14 @@
     tip.style.left = `${Math.max(4, Math.min(r.left, innerWidth - tip.offsetWidth - 4))}px`;
   }
 
-  function showPointer(path, index) {
-    clearPointer();
+  function showPointer(path, index, startedAt) {
     const item = path[index];
     const el = item && findElement(item);
+    if (current && current.el === el && current.index === index && current.startedAt === startedAt) {
+      place(); // already shown: don't scroll the page again on every refresh
+      return;
+    }
+    clearPointer();
     if (!el) return;
     el.classList.add(HIGHLIGHT);
     el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
@@ -238,32 +266,276 @@
     step.textContent = `  ${index}/${path.length - 1}`;
     tip.append(step);
     document.documentElement.append(tip);
-    current = { el, tip };
+    current = { el, tip, index, startedAt };
     place();
   }
 
   addEventListener("scroll", () => requestAnimationFrame(place), { capture: true, passive: true });
   addEventListener("resize", () => requestAnimationFrame(place), { passive: true });
 
+  // ---------------------------------------------------------------- keep English
+
+  const MENU_LIKE = `${STRONG_CLICKABLE}, li, ${MENU_CONTAINERS}`;
+  let labelMap = null;          // Korean label -> English label (bundled menu map + recordings)
+  const replaced = new Map();   // text node -> its original Korean text
+  let englishTimer = null;
+  const englishObserver = new MutationObserver(() => {
+    clearTimeout(englishTimer);
+    englishTimer = setTimeout(applyEnglish, 300);
+  });
+
+  function englishWanted() {
+    return settings.keepEnglish && !recording;
+  }
+
+  async function updateEnglish() {
+    if (!englishWanted()) {
+      englishObserver.disconnect();
+      restoreEnglish();
+      return;
+    }
+    if (!labelMap) {
+      const answer = await chrome.runtime.sendMessage({ type: "labels:get" }).catch(() => null);
+      labelMap = new Map(answer && answer.ok ? answer.data : []);
+    }
+    applyEnglish();
+    if (document.body) englishObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+
+  // Only whole text nodes that ARE a known Korean label, and only inside menu-like elements.
+  function applyEnglish() {
+    if (!englishWanted() || !labelMap || !labelMap.size || !document.body) return;
+    for (const node of replaced.keys()) if (!node.isConnected) replaced.delete(node);
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const label = S.cleanLabel(node.nodeValue);
+      const english = label && labelMap.get(label);
+      const parent = node.parentElement;
+      if (!english || !parent || parent.closest("script, style, textarea, #sejong-nav-pointer") || !parent.closest(MENU_LIKE)) continue;
+      if (!replaced.has(node)) replaced.set(node, node.nodeValue);
+      node.nodeValue = node.nodeValue.replace(/\S[\s\S]*\S|\S/, english); // keep surrounding spaces
+      if (!parent.hasAttribute("title")) {
+        parent.setAttribute("title", label);
+        parent.dataset.sejongTitle = "1";
+      }
+    }
+    englishObserver.takeRecords(); // our own edits must not trigger another round
+  }
+
+  function restoreEnglish() {
+    for (const [node, original] of replaced) {
+      if (!node.isConnected) continue;
+      node.nodeValue = original;
+      const parent = node.parentElement;
+      if (parent && parent.dataset.sejongTitle) {
+        parent.removeAttribute("title");
+        delete parent.dataset.sejongTitle;
+      }
+    }
+    replaced.clear();
+    englishObserver.takeRecords();
+  }
+
+  // ---------------------------------------------------------------- pop-up translation
+
+  const MODAL = "dialog[open], [role=dialog], [role=alertdialog], [aria-modal=true], " +
+    "[id*=popup i], [class*=popup i], [id*=modal i], [class*=modal i], [id*=layer i], [class*=layer i]";
+  const OVERLAY_ID = "sejong-nav-translation";
+  const reported = new WeakMap(); // element -> text already reported
+  let popupTimer = null;
+  const popupObserver = new MutationObserver(() => {
+    clearTimeout(popupTimer);
+    popupTimer = setTimeout(scanPopups, 400);
+  });
+
+  function startPopupWatch() {
+    popupObserver.observe(document.documentElement, {
+      childList: true, subtree: true, attributes: true,
+      attributeFilter: ["style", "class", "open", "hidden", "aria-hidden"],
+    });
+    scanPopups();
+  }
+
+  function looksLikeModal(el) {
+    if (el.id === OVERLAY_ID || el.closest("#sejong-nav-pointer")) return false;
+    if (el.matches(MENU_CONTAINERS) || el.closest("nav, [role=navigation], [role=menu], [role=menubar]")) return false;
+    if (!isVisible(el)) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width * r.height < 4000) return false;
+    if (el.matches("dialog[open], [role=dialog], [role=alertdialog], [aria-modal=true]")) return true;
+    const position = getComputedStyle(el).position;
+    return position === "fixed" || position === "absolute";
+  }
+
+  function reportPopup(text, kind) {
+    chrome.runtime.sendMessage({ type: "popup:found", text: text.slice(0, 3000), kind }).catch(() => {});
+  }
+
+  function scanPopups() {
+    if (!settings.translatePopups) return;
+    const candidates = [...document.querySelectorAll(MODAL)].filter(looksLikeModal);
+    for (const el of candidates.filter((c) => !candidates.some((o) => o !== c && o.contains(c)))) {
+      const text = (el.innerText || "").trim();
+      if (!S.hasHangul(text) || reported.get(el) === text) continue;
+      reported.set(el, text);
+      reportPopup(text, "pop-up");
+    }
+  }
+
+  document.addEventListener("sejong-nav-dialog", (event) => { // from page_hook.js
+    if (!settings.translatePopups) return;
+    try {
+      const { kind, message } = JSON.parse(event.detail);
+      if (S.hasHangul(message)) reportPopup(message, kind);
+    } catch (e) { /* not ours */ }
+  });
+
+  // --- top frame only: translate and show the overlay
+
+  const LANGS = { sourceLanguage: "ko", targetLanguage: "en" };
+  let translator = null;
+
+  // Returns {text, engine} | {needsDownload: true} | null
+  async function translateKo(text) {
+    let downloadable = false;
+    if (typeof Translator !== "undefined") {
+      try {
+        const availability = await Translator.availability(LANGS);
+        if (availability === "available") {
+          translator = translator || await Translator.create(LANGS);
+          return { text: await translator.translate(text), engine: "Chrome on-device translator" };
+        }
+        downloadable = availability === "downloadable" || availability === "downloading";
+      } catch (e) { /* API present but blocked here: try the next option */ }
+    }
+    const answer = await chrome.runtime.sendMessage({ type: "translate:libre", text }).catch(() => null);
+    if (answer && answer.ok && answer.data) return { text: answer.data, engine: "LibreTranslate (self-hosted)" };
+    return downloadable ? { needsDownload: true } : null;
+  }
+
+  function overlayRoot() {
+    let host = document.getElementById(OVERLAY_ID);
+    if (!host) {
+      host = document.createElement("div");
+      host.id = OVERLAY_ID;
+      host.attachShadow({ mode: "open" }); // the site's CSS cannot reach inside
+      document.documentElement.append(host);
+    }
+    return host.shadowRoot;
+  }
+
+  const OVERLAY_CSS = `
+    .box { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; width: min(380px, calc(100vw - 32px));
+           max-height: 50vh; overflow: auto; background: #fff; color: #1f2328; border: 2px solid #c3002f;
+           border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+           font: 14px/1.45 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
+             background: #c3002f; color: #fff; font-weight: 600; font-size: 13px; }
+    header button { background: none; border: 0; color: #fff; font-size: 16px; cursor: pointer; }
+    .body { padding: 10px; white-space: pre-wrap; }
+    .muted { color: #656d76; font-size: 12px; }
+    details { padding: 0 10px 10px; } summary { cursor: pointer; color: #656d76; font-size: 12px; }
+    .orig { white-space: pre-wrap; margin-top: 6px; color: #656d76; }
+    .action { margin: 0 10px 10px; padding: 5px 10px; border: 1px solid #c3002f; background: #fff;
+              color: #c3002f; border-radius: 6px; cursor: pointer; font: inherit; }
+    @media (prefers-color-scheme: dark) {
+      .box { background: #1c1f24; color: #e6edf3; } .action { background: #1c1f24; }
+    }`;
+
+  function renderOverlay({ title, message, original, action }) {
+    const root = overlayRoot();
+    const make = (tag, cls, text) => {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined) node.textContent = text; // textContent only: page text is never parsed as HTML
+      return node;
+    };
+    const style = make("style", null, OVERLAY_CSS);
+    const box = make("div", "box");
+    const header = make("header");
+    const close = make("button", null, "✕");
+    close.title = "Close";
+    close.addEventListener("click", () => document.getElementById(OVERLAY_ID).remove());
+    header.append(make("span", null, title), close);
+    box.append(header, make("div", "body", message));
+    if (action) {
+      const button = make("button", "action", action.label);
+      button.addEventListener("click", action.run);
+      box.append(button);
+    }
+    const details = make("details");
+    details.append(make("summary", null, "Original (한국어)"), make("div", "orig", original));
+    box.append(details);
+    root.replaceChildren(style, box);
+  }
+
+  async function showTranslation(original, kind) {
+    const title = `English · ${kind === "alert" || kind === "confirm" || kind === "prompt" ? `last ${kind}()` : "pop-up"}`;
+    renderOverlay({ title, message: "Translating…", original });
+    const result = await translateKo(original);
+    if (result && result.text) {
+      renderOverlay({ title: `${title} · ${result.engine}`, message: result.text, original });
+    } else if (result && result.needsDownload) {
+      renderOverlay({
+        title, original,
+        message: "Chrome can translate Korean on this computer, but needs a one-time download (~ tens of MB). Nothing is sent to a server.",
+        action: {
+          label: "Download translator",
+          run: async () => { // a click = the user gesture Chrome requires for the download
+            try {
+              translator = await Translator.create({
+                ...LANGS,
+                monitor(m) {
+                  m.addEventListener("downloadprogress", (e) => renderOverlay({ title, original, message: `Downloading… ${Math.round(e.loaded * 100)}%` }));
+                },
+              });
+              showTranslation(original, kind);
+            } catch (e) {
+              renderOverlay({ title, original, message: `Download failed: ${e.message}` });
+            }
+          },
+        },
+      });
+    } else {
+      renderOverlay({
+        title, original,
+        message: "No translator available. Use Chrome 138+ (built-in on-device translator) or start a self-hosted LibreTranslate and set TRANSLATE_URL in config.js.",
+      });
+    }
+  }
+
   // ---------------------------------------------------------------- events
 
   document.addEventListener("click", (event) => {
     if (recording) recordClick(event.target);
+    // The user clicked the highlighted step: save the next step (before the page navigates away).
+    if (current && event.target instanceof Node && current.el.contains(event.target)) {
+      chrome.runtime.sendMessage({ type: "guide:clicked", index: current.index, startedAt: current.startedAt })
+        .catch(() => {});
+    }
     // After a click the menu may open or the page may change: look for the next step.
     if (guiding) setTimeout(() => chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {}), 500);
   }, true);
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     switch (msg && msg.type) {
-      case "rec:scanFrame":
+      case "rec:scanFrame": {
+        const hadEnglish = replaced.size > 0;
+        if (hadEnglish) restoreEnglish(); // record the real Korean labels
         sendResponse(scanMenus());
+        if (hadEnglish) updateEnglish();
+        break;
+      }
+      case "popup:show":
+        if (window === window.top) showTranslation(msg.text, msg.kind);
+        sendResponse({ ok: true });
         break;
       case "guide:probe":
-        sendResponse({ index: deepestVisible(msg.path) });
+        sendResponse({ visible: visibleSteps(msg.path) });
         break;
       case "guide:show":
         guiding = true;
-        showPointer(msg.path, msg.index);
+        showPointer(msg.path, msg.index, msg.startedAt);
         sendResponse({ ok: true });
         break;
       case "guide:clear":
@@ -277,6 +549,6 @@
     return false;
   });
 
-  // A new page (or frame) loaded: if a guide is running in this tab, continue it.
+  // A new page (or frame) loaded, also a new tab opened by SSO: if a guide is active, continue it.
   chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {});
 })();

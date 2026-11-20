@@ -1,0 +1,15 @@
+# AI-generated — to be rewritten by me
+.venv/
+.git/
+.cache/
+models/
+**/__pycache__/
+.pytest_cache/
+.env
+.env.*
+extension/
+tests/
+eval/
+server/
+scripts/
+*.md

@@ -1,0 +1,5 @@
+# AI-generated — to be rewritten by me
+-r requirements.txt
+pytest>=8.0
+httpx>=0.27  # used by fastapi.testclient
+pyyaml>=6.0  # tests check docker-compose.yml

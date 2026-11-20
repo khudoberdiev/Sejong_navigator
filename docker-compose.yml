@@ -1,0 +1,46 @@
+# AI-generated — to be rewritten by me
+#   docker compose up --build                        FastAPI on http://127.0.0.1:8000
+#   docker compose --profile tcp up --build          + server_ai on http://127.0.0.1:8001
+#   docker compose --profile translate up            + LibreTranslate on http://127.0.0.1:5000
+#   SEJONG_MODEL=models/e5-small-sejong docker compose up    use the fine-tuned model
+# Ports bind to 127.0.0.1 only: the backend is for this computer, not the network.
+
+x-backend: &backend
+  build: .
+  image: sejong-navigator-backend
+  environment:
+    SEJONG_SEMANTIC_WEIGHT: "${SEJONG_SEMANTIC_WEIGHT:-0.5}"
+    SEJONG_MODEL: "${SEJONG_MODEL:-intfloat/multilingual-e5-small}"
+  volumes:
+    - ./data:/app/data:ro            # edit the menu map without rebuilding (restart to reload)
+    - ./models:/app/models:ro        # fine-tuned models from ml/finetune.py
+    - model-cache:/home/app/.cache   # Hugging Face downloads + embedding cache
+  restart: unless-stopped
+
+services:
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  server_ai:
+    <<: *backend
+    profiles: ["tcp"]
+    command: ["python", "-m", "server_ai", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8001:8000"
+
+  libretranslate:
+    profiles: ["translate"]
+    image: libretranslate/libretranslate:latest   # pin a version tag once you have tested one
+    environment:
+      LT_LOAD_ONLY: "ko,en"
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - translate-models:/home/libretranslate/.local
+    restart: unless-stopped
+
+volumes:
+  model-cache:
+  translate-models:

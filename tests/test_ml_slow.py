@@ -18,6 +18,22 @@ def test_semantic_only_handles_no_shared_words():
     assert "sjpt.grade_current" in ids
 
 
+def test_both_servers_match_with_the_real_model():
+    from urllib.parse import quote
+
+    from tests.test_server_parity import ask_fastapi, ask_tcp
+    from server_ai import HTTPServer
+
+    server = HTTPServer("127.0.0.1", 0, log=False)
+    server.start_in_thread()
+    try:
+        for question in ["baholarim qayerda?", "성적 조회", "where are my grades?"]:
+            target = f"/search?q={quote(question)}&k=3"
+            assert ask_tcp(server, "GET", target) == ask_fastapi("GET", target)
+    finally:
+        server.shutdown()
+
+
 def test_vectors_are_cached_on_disk():
     navigator._vector_index()  # build (or load) once
     navigator.reset_caches()

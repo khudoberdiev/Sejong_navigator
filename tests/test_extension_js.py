@@ -65,15 +65,39 @@ def test_recorded_export_loads_in_core(js_run, tmp_path, monkeypatch):
 def test_manifest_files_exist_and_cover_sites():
     manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["manifest_version"] == 3
-    referenced = [manifest["background"]["service_worker"], manifest["action"]["default_popup"]]
+    assert "default_popup" not in manifest["action"]  # the UI lives in the side panel
+    assert "sidePanel" in manifest["permissions"]
+    referenced = [manifest["background"]["service_worker"], manifest["side_panel"]["default_path"]]
     for script in manifest["content_scripts"]:
-        referenced += script["js"] + script["css"]
+        referenced += script["js"] + script.get("css", [])
+        for host in ["portal", "sjpt", "ecampus", "library"]:
+            assert f"*://{host}.sejong.ac.kr/*" in script["matches"]
+        assert script["all_frames"] is True  # menus and pop-ups inside iframes
     for name in referenced:
         assert (EXT / name).is_file(), name
-    matches = manifest["content_scripts"][0]["matches"]
-    for host in ["portal", "sjpt", "ecampus", "library"]:
-        assert f"*://{host}.sejong.ac.kr/*" in matches
-    assert manifest["content_scripts"][0]["all_frames"] is True
+
+
+def test_page_hook_runs_in_page_world_before_site_scripts():
+    manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
+    hook = next(s for s in manifest["content_scripts"] if s["js"] == ["page_hook.js"])
+    assert hook["world"] == "MAIN" and hook["run_at"] == "document_start"
+    text = (EXT / "page_hook.js").read_text(encoding="utf-8")
+    assert "fetch(" not in text and "XMLHttpRequest" not in text  # it only reports to content.js
+
+
+def test_bundled_menu_map_is_in_sync():
+    bundled = EXT / "data" / "menu_map.json"
+    source = ROOT / "data" / "menu_map.json"
+    assert bundled.read_bytes() == source.read_bytes(), "run: .venv/bin/python scripts/sync_extension_data.py"
+
+
+def test_translation_never_uses_a_public_service():
+    for js in EXT.glob("*.js"):
+        text = js.read_text(encoding="utf-8")
+        for host in ("translate.googleapis", "translate.google", "api.mymemory", "libretranslate.com",
+                     "deepl.com", "papago"):
+            assert host not in text, f"{js.name} mentions {host}"
+    assert 'TRANSLATE_URL: ""' in (EXT / "config.js").read_text(encoding="utf-8")  # off unless self-hosted
 
 
 def test_backend_url_lives_only_in_config():

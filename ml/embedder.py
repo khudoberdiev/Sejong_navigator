@@ -15,7 +15,10 @@ import numpy as np
 if TYPE_CHECKING:  # type hints only; a real import would be circular (core imports ml)
     from core.models import MenuItem
 
-DEFAULT_MODEL = "intfloat/multilingual-e5-small"
+BASE_MODEL = "intfloat/multilingual-e5-small"
+# The model the app uses: a Hugging Face name or a local folder, e.g. the
+# fine-tuned one:  SEJONG_MODEL=models/e5-small-sejong
+DEFAULT_MODEL = os.environ.get("SEJONG_MODEL", BASE_MODEL)
 Kind = Literal["query", "passage"]
 
 # Some models are trained with a prefix that marks questions vs documents.
@@ -23,6 +26,12 @@ Kind = Literal["query", "passage"]
 _PREFIXES: dict[str, dict[str, str]] = {
     "e5": {"query": "query: ", "passage": "passage: "},
 }
+
+
+def prefixes_for(model_name: str) -> dict[str, str]:
+    """{"query": ..., "passage": ...} prefixes for a model, found by name ("e5" in the name or path)."""
+    family = next((f for f in _PREFIXES if f in str(model_name).lower()), None)
+    return _PREFIXES.get(family, {"query": "", "passage": ""})
 
 
 def passage_text(item: MenuItem) -> str:
@@ -44,14 +53,13 @@ class Embedder:
     to try the Apple GPU.
     """
 
-    def __init__(self, model_name: str = DEFAULT_MODEL, device: str | None = None,
+    def __init__(self, model_name: str | None = None, device: str | None = None,
                  batch_size: int = 32) -> None:
-        self.model_name = model_name
+        self.model_name = str(model_name or DEFAULT_MODEL)
         self.device = device or os.environ.get("SEJONG_DEVICE", "cpu")
         self.batch_size = batch_size
         self._model = None
-        family = next((f for f in _PREFIXES if f in model_name.lower()), None)
-        self._prefixes = _PREFIXES.get(family, {"query": "", "passage": ""})
+        self._prefixes = prefixes_for(self.model_name)
 
     def _load(self):
         if self._model is None:
