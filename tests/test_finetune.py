@@ -112,8 +112,14 @@ def test_split_is_deterministic(items):
 def test_eval_questions_are_protected(split):
     train, _ = split
     kept, dropped = ft.drop_near_duplicates(train, EVAL_QUESTIONS)
-    assert "baholarim qayerda?" in {p.query for p in dropped}  # it is also a template × keyword
+    assert dropped  # some template × keyword pairs always land on an eval question (e.g. "성적 조회")
     assert ft.leakage_report(kept, [], EVAL_QUESTIONS)["near_duplicates_of_protected"] == 0
+    # Independent of the menu data: an exact copy and a one-letter variant are both dropped.
+    planted = [ft.Pair("baholarim qayerda?", "x", "uz"), ft.Pair("baholarim qayerda", "x", "uz"),
+               ft.Pair("kutubxona ish vaqti", "x", "uz")]
+    kept, dropped = ft.drop_near_duplicates(planted, EVAL_QUESTIONS)
+    assert [p.query for p in dropped] == ["baholarim qayerda?", "baholarim qayerda"]
+    assert [p.query for p in kept] == ["kutubxona ish vaqti"]
 
 
 def test_leakage_report_catches_a_shared_query():
