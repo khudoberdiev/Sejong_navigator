@@ -7,9 +7,11 @@ Uses the real model (the first run downloads it; later runs use the vector cache
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from core import navigator
+from core.data import menu_map_path
 from eval.questions import QUESTIONS
 from ml.embedder import DEFAULT_MODEL
 
@@ -19,6 +21,17 @@ SETUPS = {"lexical only (w=0)": 0.0, "semantic only (w=1)": 1.0,
 SWEEP = (0.0, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
 RESULTS = Path(__file__).resolve().parent / "results.md"
 FINETUNE_RESULTS = Path(__file__).resolve().parent / "finetune_results.md"
+
+
+FINGERPRINT_PREFIX = "<!-- data: "
+
+
+def data_fingerprint() -> str:
+    """Short hash of the menu map file and the eval questions. ml/finetune.py writes it into
+    finetune_results.md, so a fine-tuning section measured on other data is flagged as stale."""
+    digest = hashlib.sha256(menu_map_path().read_bytes())
+    digest.update(repr(QUESTIONS).encode("utf-8"))
+    return digest.hexdigest()[:16]
 
 
 def evaluate(weight: float) -> tuple[dict, list]:
@@ -44,7 +57,8 @@ def main() -> None:
         "<!-- AI-generated — to be rewritten by me -->",
         "# Search evaluation",
         "",
-        f"Model: `{DEFAULT_MODEL}`, {len(QUESTIONS)} questions (eval/questions.py). "
+        f"Model: `{DEFAULT_MODEL}`, {len(QUESTIONS)} questions (eval/questions.py), "
+        f"{len(navigator.load_menu_items())} menu items (data/menu_map.json, data `{data_fingerprint()}`). "
         "Regenerate with `.venv/bin/python -m eval.run_eval`.",
         "",
         "| Setup | " + " | ".join(f"{l} top-1 | {l} top-3" for l in LANGS) + " | all top-1 | all top-3 |",
@@ -80,8 +94,14 @@ def main() -> None:
 
     # Written by ml/finetune.py; kept here so this file always has the full picture.
     if FINETUNE_RESULTS.exists():
-        section = FINETUNE_RESULTS.read_text(encoding="utf-8").split("\n", 1)[1]  # skip its header comment
-        lines += ["", section.rstrip()]
+        text = FINETUNE_RESULTS.read_text(encoding="utf-8")
+        body = [line for line in text.splitlines()[1:] if not line.startswith(FINGERPRINT_PREFIX)]
+        lines += [""] + body[:1]  # the "## Fine-tuning" heading
+        if f"{FINGERPRINT_PREFIX}{data_fingerprint()} -->" not in text:
+            lines += ["", "> **Stale:** these fine-tuning numbers were measured on a different menu map or "
+                          "question set than the tables above (e.g. the old 19-item example data). "
+                          "Re-run `.venv/bin/python -m ml.finetune` to refresh them."]
+        lines += ["\n".join(body[1:]).rstrip()]
 
     RESULTS.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))

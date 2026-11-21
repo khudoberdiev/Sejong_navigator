@@ -60,8 +60,8 @@ def _trie() -> Trie:
     trie = Trie()
     items = sorted(load_menu_items().values(), key=lambda i: i.id)
     for item in items:  # names first, so a name wins over an identical keyword
-        trie.insert(item.name_ko)
-        trie.insert(item.name_en)
+        for name in item.names():  # name_ko, name_en and the site's own English label
+            trie.insert(name)
     for item in items:
         for keyword in item.keywords:
             trie.insert(keyword)
@@ -215,12 +215,15 @@ def route(from_id: str, to_id: str) -> list[dict]:
     edge. The path is found with BFS, so it has the fewest clicks.
     Usually from_id is the page the student is on now (or "portal.root").
     The extension uses the items directly: names for the breadcrumbs, and
-    selector / names to find each step on the page.
+    selector_desktop / selector_mobile / names to find each step on the page.
+    Every SJPT item hangs under portal.sjpt (scripts/build_menu_map.py), so a
+    route from the portal into SJPT always goes through it.
 
     Example:
-        [step["id"] for step in route("portal.root", "sjpt.grade_current")]
-        -> ["portal.root", "portal.sjpt", "sjpt.class_grade",
-            "sjpt.grade_eval", "sjpt.grade_current"]
+        [step["id"] for step in route("portal.root", "sjpt.current_semester_grades")]
+        -> ["portal.root", "portal.info_system", "portal.integrated_info", "portal.sjpt",
+            "sjpt.self_stud", "sjpt.class_grade", "sjpt.grades_course_evaluation",
+            "sjpt.current_semester_grades"]
 
     Returns:
         One dict per step, from from_id to to_id (both included), in click
@@ -237,7 +240,7 @@ def route(from_id: str, to_id: str) -> list[dict]:
 def suggest(prefix: str) -> list[str]:
     """Autocomplete: return menu names and keywords that start with the prefix.
 
-    Matches name_ko, name_en and keywords with a trie. Matching ignores case
+    Matches name_ko, name_en, the site's English label and keywords with a trie. Matching ignores case
     and punctuation, and Korean matches at jamo level, so "ㅈㅏㅇ" or "장ㅎ"
     finds "장학금".
 

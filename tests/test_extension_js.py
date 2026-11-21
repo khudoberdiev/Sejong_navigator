@@ -53,7 +53,8 @@ def test_recorded_export_loads_in_core(js_run, tmp_path, monkeypatch):
         items = load_menu_items()
         assert [i.id for i in items.values() if i.parent_id is None] == ["portal.root"]
         assert all(i.keywords == () for i in items.values())
-        assert all(i.url or i.selector for i in items.values())
+        assert all(i.url or i.selector_desktop for i in items.values())  # old "selector" field still loads
+        assert all(i.selector_mobile is None and i.name_en_site is None for i in items.values())
         deepest = max(items.values(), key=lambda i: len(bfs_path(build_graph(items.values()), "portal.root", i.id)))
         path_ids = bfs_path(build_graph(items.values()), "portal.root", deepest.id)
         assert len(path_ids) == 5  # portal → 학사정보시스템 → 수업/성적 → 성적 및 강의평가 → Current Semester…

@@ -97,7 +97,8 @@ async function scanTab(tabId) {
 // loads, this worker going to sleep, and SSO opening SJPT in a new tab. This worker is the
 // only writer; the side panel reads and watches these keys.
 //   activeGuide        { route, step, targetId, startedAt }       (S.newGuide)
-//   guideView:<tabId>  { startedAt, shown, step, sejong, at }     what that tab highlights now
+//   guideView:<tabId>  { startedAt, shown, step, sejong, korOnly, at }  what that tab highlights now
+//                      (korOnly: index of the next step if it exists only in Korean mode, else -1)
 //   guideLast          { outcome: "finished" | "stopped", targetId, name, at }
 const GUIDE = "activeGuide";
 const viewKey = (tabId) => `guideView:${tabId}`;
@@ -123,9 +124,15 @@ async function runGuide(tabId) {
   const guide = await getGuide();
   if (!S.isGuide(guide)) return { active: false };
   const frames = await framesOf(tabId).catch(() => []);
+  // Each frame answers {site, lang, visible, hidden}: steps on screen, and steps in the DOM but
+  // hidden (inside a collapsed menu). Only visible steps can be highlighted, so a hidden step
+  // shows its nearest visible parent step instead (pickStep takes the deepest visible one).
   const probes = (await Promise.all(frames.map(async (f) => {
     const answer = await sendToFrame(tabId, f.frameId, { type: "guide:probe", path: guide.route });
-    return answer ? { frameId: f.frameId, visible: answer.visible || [] } : null;
+    return answer ? {
+      frameId: f.frameId, site: answer.site || null, lang: answer.lang || null,
+      visible: answer.visible || [], hidden: answer.hidden || [],
+    } : null;
   }))).filter(Boolean);
   const pick = S.pickStep(guide, probes.flatMap((p) => p.visible));
   const target = pick.show >= 0 ? probes.find((p) => p.visible.includes(pick.show)) : null;
@@ -133,10 +140,14 @@ async function runGuide(tabId) {
   const now = await updateGuide((g) => (g && g.startedAt === guide.startedAt && pick.step > g.step
     ? Object.assign({}, g, { step: pick.step }) : undefined));
   if (!now || now.startedAt !== guide.startedAt) return { active: false };
+  const korOnly = S.korOnlyStep(now, probes, pick.show);
+  const note = korOnly >= 0 ? S.KOR_ONLY_NOTE : "";
   await Promise.all(frames.map((f) => sendToFrame(tabId, f.frameId, target && f.frameId === target.frameId
-    ? { type: "guide:show", path: guide.route, index: pick.show, startedAt: guide.startedAt }
+    ? { type: "guide:show", path: guide.route, index: pick.show, startedAt: guide.startedAt, note }
     : { type: "guide:clear", guiding: true })));
-  const view = { startedAt: guide.startedAt, shown: pick.show, step: now.step, sejong: probes.length > 0, at: Date.now() };
+  const view = {
+    startedAt: guide.startedAt, shown: pick.show, step: now.step, sejong: probes.length > 0, korOnly, at: Date.now(),
+  };
   await chrome.storage.session.set({ [viewKey(tabId)]: view });
   return Object.assign({ active: true, total: guide.route.length }, view);
 }

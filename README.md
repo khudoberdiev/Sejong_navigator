@@ -16,10 +16,39 @@ e-Campus, Library). Ask in Uzbek, English or Korean, for example "baholarim qaye
 | `server_ai/` | Raw-TCP HTTP server, standard library only (AI reference version) |
 | `server/`    | Your hand-written raw-TCP server |
 | `extension/` | Chrome extension (Manifest V3) |
-| `data/`      | `menu_map.json`, the menu tree (no personal data) |
+| `data/`      | `raw/<site>.json`: menus recorded from the live sites; `menu_map.json`: the merged tree (generated, no personal data) |
 | `tests/`     | pytest (+ `tests/js/` run with macOS JavaScriptCore) |
 | `eval/`      | Model sanity check + accuracy evaluation (`eval/results.md`) |
-| `scripts/`   | `sync_extension_data.py`: copies the menu map into the extension |
+| `scripts/`   | `build_menu_map.py`: merges `data/raw/*.json` into the menu map (+ the extension's copy); `sync_extension_data.py`: only copies it |
+
+## Menu data
+
+Edit `data/raw/<site>.json`, never `data/menu_map.json`, then rebuild:
+
+```bash
+.venv/bin/python scripts/build_menu_map.py          # validate, write data/menu_map.json + extension/data/, print a summary
+.venv/bin/python scripts/build_menu_map.py --check  # only check that both copies are up to date
+```
+
+- The build stops and lists every problem: wrong or missing fields, unknown site, duplicate ids, a `parent_id` that does not exist, cycles, links between sites.
+- It adds `portal.root` (the portal main page; every route starts there) and hangs every top-level portal item under it.
+- The top-level items of the other sites hang under the portal link that opens them: SJPT under `portal.sjpt`, e-Campus under `portal.ecampus`, the library under `portal.library` (`ENTRY_POINTS` in the script). So a route from the portal into SJPT always goes through `portal.sjpt`, which opens SJPT in a new tab.
+- `tests/test_menu_map.py` fails while `menu_map.json` is older than the raw files.
+
+Fields of one item (all required in the raw files):
+
+| Field | Meaning |
+|---|---|
+| `id`, `site`, `parent_id` | Stable id, site (`portal`/`sjpt`/`ecampus`/`library`), the item you click before it (`null` = top level) |
+| `name_ko`, `name_en` | Korean label on the site; our English name (Keep-English shows it) |
+| `name_en_site` | The label the site itself shows in English mode, as recorded (may contain entities like `&#38;`; decoded for search and matching). `null` = the site shows no English label |
+| `selector_desktop`, `selector_mobile` | CSS selector per layout. Both `null` = found by its text (`name_ko` or `name_en_site`) |
+| `mobile_path_note` | Hint on how to reach it (shown in the panel when the step is not on the page) |
+| `frame` | Where it lives, for humans (e.g. an SJPT WebSquare wframe; these are NOT iframes) |
+| `opens_new_tab`, `url`, `description`, `keywords` | New tab on click; direct link; search text; Uzbek/English/Korean synonyms |
+
+Search and autocomplete match `name_ko`, `name_en`, `name_en_site` and `keywords`.
+An older map with a single `selector` field (what the recorder exports) still loads: the selector is used as `selector_desktop`.
 
 ## Setup (macOS)
 
@@ -70,7 +99,7 @@ min-max scaled to 0–1 for each query.
 ```bash
 .venv/bin/python -m ml.finetune                              # synthetic pairs (names/keywords × templates)
 .venv/bin/python -m ml.finetune --pairs data/real_pairs.jsonl  # real questions, one per line:
-#   {"query": "baholarimni qayerdan ko'raman", "item_id": "sjpt.grade_current", "lang": "uz"}
+#   {"query": "baholarimni qayerdan ko'raman", "item_id": "sjpt.current_semester_grades", "lang": "uz"}
 .venv/bin/python -m eval.run_eval                            # copies the comparison into eval/results.md
 ```
 
@@ -94,9 +123,17 @@ Chrome closes). Every Sejong page load, including a new tab that SSO opens for S
 current step again by itself. Clicking the highlighted item moves to the next step; clicking the final
 item, or **Stop**, ends the guide. The side panel shows the status for whichever tab is active.
 
+How a step is found on the page:
+- `selector_desktop`, then `selector_mobile`. The first match that is visible wins, so the current layout decides.
+- If both are `null`: an element whose whole text is `name_ko` or `name_en_site`. Entities are decoded, and case and spacing are ignored. Keep-English's replacements don't affect this; the site's original text is compared.
+- Only items of the page's own site are looked for.
+- If a step's element exists but is hidden (e.g. inside a collapsed branch of SJPT's left tree), the nearest visible parent step is highlighted first.
+- SJPT tree nodes are found by their `treenodevalue` codes, which are the same in KOR and ENG mode.
+- If the page is in English mode and the next SJPT step is not on the page at all and has no `name_en_site`, the panel and the pointer say "This menu only appears in Korean mode (KOR)".
+
 **Keep-English** (on by default, side panel → Settings):
 - After every page load and every menu change, known Korean menu labels are replaced with their English names. Hovering shows the Korean.
-- The labels come from `extension/data/menu_map.json` plus your recorded items that have an English name. Run `.venv/bin/python scripts/sync_extension_data.py` after editing `data/menu_map.json`.
+- The labels come from `extension/data/menu_map.json` plus your recorded items that have an English name. `scripts/build_menu_map.py` keeps that copy up to date.
 - It pauses while recording, so recordings keep the Korean labels.
 
 **Pop-up translation** (on by default):
@@ -115,8 +152,9 @@ item, or **Stop**, ends the guide. The side panel shows the status for whichever
 4. In the panel, check the "Next click becomes a child of" breadcrumb and the list (✕ deletes a wrong item).
    Press **New path** before recording the next branch from the top. **Undo last** removes the last click.
 5. Repeat on other pages and sites. Everything merges into one store, even after a browser restart.
-6. **Export JSON** downloads `menu_map.recorded.<date>.json`. Fill in the empty `name_en`/`name_ko`,
-   `description` and `keywords`, then copy it to `data/menu_map.json` (or use `SEJONG_MENU_MAP=<file>`).
+6. **Export JSON** downloads `menu_map.recorded.<date>.json` (older format: one `selector`). Fill in the empty
+   `name_en`/`name_ko`, `description` and `keywords`. Try it directly with `SEJONG_MENU_MAP=<file>`, or move
+   its items into `data/raw/<site>.json` with the full field set (see "Menu data") and run `scripts/build_menu_map.py`.
    **Import JSON** merges an earlier export back in.
 
 ## HTTP contract (every server must match: `tests/test_server_parity.py`)

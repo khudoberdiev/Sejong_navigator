@@ -52,7 +52,7 @@ class Pair:
     lang: str                  # "uz" | "en" | "ko"
     term: str | None = None    # the name/keyword it was made from (synthetic only)
     template: str | None = None
-    from_name: bool = False    # term is name_ko/name_en (never held out)
+    from_name: bool = False    # term is name_ko/name_en/name_en_site (never held out)
 
 
 # "{t}" is filled with one name or keyword of the item. Latin-script terms get the
@@ -92,7 +92,7 @@ def _unambiguous_terms(items) -> dict[str, list[str]]:
 
 def synthetic_pairs(items) -> list[Pair]:
     """Every (term, template) combination for every item, in a fixed order."""
-    names = {item.id: {item.name_ko.strip(), item.name_en.strip()} for item in items}
+    names = {item.id: {name.strip() for name in item.names()} for item in items}
     pairs = []
     for item_id, terms in sorted(_unambiguous_terms(items).items()):
         for term in terms:
@@ -451,7 +451,9 @@ def main(argv=None) -> None:
         results = evaluate_models({"baseline": args.base_model, "fine-tuned": str(args.out)},
                                   test_pairs, passages, SEMANTIC_WEIGHT)
         markdown = results_markdown(results, info, SEMANTIC_WEIGHT)
-        RESULTS_FILE.write_text("<!-- AI-generated — to be rewritten by me -->\n" + markdown, encoding="utf-8")
+        from eval.run_eval import FINGERPRINT_PREFIX, data_fingerprint  # which data these numbers are for
+        RESULTS_FILE.write_text("<!-- AI-generated — to be rewritten by me -->\n"
+                                f"{FINGERPRINT_PREFIX}{data_fingerprint()} -->\n" + markdown, encoding="utf-8")
         print(markdown)
         log(f"wrote {RESULTS_FILE} (re-run eval/run_eval.py to refresh eval/results.md)")
 

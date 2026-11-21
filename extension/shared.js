@@ -11,7 +11,8 @@
 // Item ids are a hash of (site + the label path inside the page's menu), e.g. "sjpt.m1x9k2a".
 // The same menu entry recorded again on another page gets the same id, so recordings merge.
 //
-// Guide state (newGuide, pickStep, advanceGuide, guideStatus): see "guide state" below.
+// Finding items on a page (decodeEntities, labelKey, siteNames, selectorsFor, englishName) and
+// guide state (newGuide, pickStep, advanceGuide, korOnlyStep, guideStatus): see below.
 (function (root) {
   "use strict";
 
@@ -242,6 +243,44 @@
     return (item && (item.name_ko || item.name_en)) || "";
   }
 
+  // ------------------------------------------------------------------ finding a menu item on the page
+
+  // name_en_site is stored exactly as recorded and may contain entities ("Q&#38;A").
+  const NAMED_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  function decodeEntities(text) {
+    return String(text == null ? "" : text).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code) => {
+      if (code[0] === "#") {
+        const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+        return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole;
+      }
+      const named = NAMED_ENTITIES[code.toLowerCase()];
+      return named === undefined ? whole : named;
+    });
+  }
+
+  // How labels are compared: entities decoded, whitespace trimmed and collapsed, case ignored.
+  function labelKey(text) {
+    return cleanLabel(decodeEntities(text)).toLowerCase();
+  }
+
+  // Labels the site itself shows for this item: Korean mode and English mode.
+  function siteNames(item) {
+    const keys = [item && item.name_ko, item && item.name_en_site].map(labelKey).filter(Boolean);
+    return keys.filter((k, i) => keys.indexOf(k) === i);
+  }
+
+  // CSS selectors to try, in order: desktop layout, then mobile layout. "selector" is the
+  // older single-selector format (recorded items). [] means: find the element by its text.
+  function selectorsFor(item) {
+    return [item && item.selector_desktop, item && item.selector_mobile, item && item.selector]
+      .filter((s) => typeof s === "string" && s.trim());
+  }
+
+  // English label for breadcrumbs and the pointer: the site's own English label if it has one.
+  function englishName(item) {
+    return cleanLabel(decodeEntities((item && (item.name_en_site || item.name_en)) || ""));
+  }
+
   // Rows for the popup's review list (site roots left out).
   function listForReview(store) {
     return Object.values(store.items)
@@ -355,12 +394,31 @@
     return { guide: Object.assign({}, guide, { step }), finished: false };
   }
 
+  const KOR_ONLY_NOTE = "This menu only appears in Korean mode (KOR)";
+  // Sites whose English-mode menu was recorded, so name_en_site null really means "not in the
+  // ENG menu". (The library data has no English labels at all: null there means "not recorded".)
+  const KOR_ONLY_SITES = ["sjpt"];
+
+  // The step to click next is not on the page at all (not even hidden in a collapsed menu),
+  // the page is in English mode, and the item has no English label on the site: it exists only
+  // in Korean mode. probes: one per frame, {site, lang: "en"|"ko"|null, visible: [i], hidden: [i]}.
+  //   → that step's index, or -1
+  function korOnlyStep(guide, probes, shown) {
+    const index = guide.step;
+    const item = guide.route[index];
+    if (!item || item.name_en_site || shown >= index || KOR_ONLY_SITES.indexOf(item.site) < 0) return -1;
+    const list = probes || [];
+    if (list.some((p) => (p.visible || []).indexOf(index) >= 0 || (p.hidden || []).indexOf(index) >= 0)) return -1;
+    return list.some((p) => p.site === item.site && p.lang === "en") ? index : -1;
+  }
+
   // What the side panel says for one tab. view = that tab's "guideView:<tabId>" or null.
-  //   → { kind, index }  kind: pending | other-tab | missing | hint | next | here
+  //   → { kind, index }  kind: pending | other-tab | kor-only | missing | hint | next | here
   function guideStatus(guide, view) {
     const last = guide.route.length - 1;
     if (!view || view.startedAt !== guide.startedAt) return { kind: "pending", index: guide.step };
     if (!view.sejong) return { kind: "other-tab", index: guide.step };
+    if (Number.isInteger(view.korOnly) && view.korOnly >= 0) return { kind: "kor-only", index: view.korOnly };
     if (view.shown < 0) return { kind: "missing", index: guide.step };
     if (view.shown === last) return { kind: "here", index: last };
     if (view.shown < guide.step) return { kind: "hint", index: view.shown };
@@ -371,6 +429,7 @@
     SITES, siteForHost, rootId, isRootId, cleanLabel, hasHangul, isSafeLabel, sanitizeUrl,
     stableId, newStore, applyClick, applyScan, undo, deleteItem, displayName, listForReview,
     toMenuMap, mergeMenuMap,
-    newGuide, isGuide, pickStep, advanceGuide, guideStatus,
+    decodeEntities, labelKey, siteNames, selectorsFor, englishName,
+    newGuide, isGuide, pickStep, advanceGuide, KOR_ONLY_NOTE, korOnlyStep, guideStatus,
   });
 })(globalThis);

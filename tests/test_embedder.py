@@ -55,7 +55,8 @@ def test_default_device_is_cpu(monkeypatch):
 
 
 def test_passage_text_contains_all_parts():
-    item = load_menu_items()["sjpt.grade_current"]
+    item = load_menu_items()["sjpt.current_semester_grades"]
     text = passage_text(item)
-    for part in (item.name_ko, item.name_en, "baholarim", "my grades", "성적", "GPA for this semester"):
+    for part in (item.name_ko, item.name_en, item.name_en_site, "joriy baholar", "당학기성적",
+                 "View this semester's grades"):
         assert part in text

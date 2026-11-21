@@ -8,11 +8,14 @@
 //     * scan  – on request: walk the page's menu containers (nav, [role=menu], *menu*, gnb/lnb ...)
 //     * click – while recording: each click on a menu-like element is one step of a path
 //
-// GUIDE: reports which steps of the active route are visible in this frame (by selector,
-//   else by exact Korean/English text) and highlights the one background.js picks with an
-//   outline + pointer. On every page load it asks background.js for the active guide (kept in
-//   chrome.storage.session), so the highlight comes back after navigation and in new tabs.
+// GUIDE: reports which steps of the active route are in this frame, visible or hidden
+//   (by selector_desktop / selector_mobile, else by the exact Korean / English site label), and
+//   whether the page is in English or Korean mode. Highlights the step background.js picks with
+//   an outline + pointer. On every page load it asks background.js for the active guide (kept
+//   in chrome.storage.session), so the highlight comes back after navigation and in new tabs.
 //   A click on the highlighted element advances the guide to the next step.
+//   SJPT (WebSquare): the left menu is a collapsible tree in the main document (its "wframes"
+//   are not iframes). Its nodes are found by treenodevalue codes, the same in KOR and ENG mode.
 //
 // KEEP-ENGLISH: after every page load (and whenever the menu changes) replaces Korean menu
 //   labels that are in the menu map with their English name. Hover shows the Korean original.
@@ -198,37 +201,88 @@
     return style.visibility !== "hidden" && style.display !== "none";
   }
 
-  function namesOf(item) {
-    return [item.name_ko, item.name_en].map(S.cleanLabel).filter(Boolean).map((n) => n.toLowerCase());
+  // The element's text as the SITE wrote it: Keep-English may have replaced Korean labels.
+  function originalText(el) {
+    if (!replaced.size) return el.textContent;
+    let text = "";
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      text += replaced.has(node) ? replaced.get(node) : node.nodeValue;
+    }
+    return text;
   }
 
+  // Where is this menu item in this frame?  → { el, visible } or null
+  //   1. selector_desktop, then selector_mobile: the first VISIBLE match wins, so the layout
+  //      decides (the desktop menu is hidden in the mobile layout and the other way round).
+  //      A match that exists but is hidden (e.g. a node inside a collapsed SJPT tree branch)
+  //      is returned with visible: false: the guide then highlights the nearest visible
+  //      parent step instead, and never guesses by text.
+  //   2. Only when the item has no selector at all: an element whose whole text is name_ko
+  //      or name_en_site (entities decoded, case and spacing ignored).
+  // Items of another site are never looked for (a portal label must not match on SJPT).
   function findElement(item) {
-    const names = namesOf(item);
-    if (item.selector) {
-      try {
-        for (const el of document.querySelectorAll(item.selector)) {
-          const text = S.cleanLabel(el.textContent).toLowerCase();
-          if (isVisible(el) && (!names.length || names.some((n) => text.includes(n)))) return el;
+    if (!item || item.site !== SITE) return null;
+    const selectors = S.selectorsFor(item);
+    if (selectors.length) {
+      let hidden = null;
+      for (const selector of selectors) {
+        let matches = [];
+        try { matches = document.querySelectorAll(selector); } catch (e) { continue; } // invalid selector
+        for (const el of matches) {
+          if (isVisible(el)) return { el, visible: true };
+          hidden = hidden || el;
         }
-      } catch (e) { /* invalid selector: fall back to text */ }
+      }
+      return hidden ? { el: hidden, visible: false } : null;
     }
+    const names = S.siteNames(item);
     if (!names.length) return null;
     let best = null;
+    let hidden = null;
     for (const el of document.querySelectorAll("a, button, [role=menuitem], [role=treeitem], [role=tab], li, span, div, td")) {
-      if (el.id === "sejong-nav-pointer" || !names.includes(S.cleanLabel(el.textContent).toLowerCase())) continue;
-      if (!isVisible(el)) continue;
+      if (el.textContent.length > 200) continue; // a container, not a label: skip the subtree walk
+      if (el.closest("#sejong-nav-pointer") || !names.includes(S.labelKey(originalText(el)))) continue;
+      if (!isVisible(el)) {
+        hidden = hidden || el;
+        continue;
+      }
       if (!best || best.contains(el)) best = el; // keep the innermost match
     }
-    return best ? best.closest(STRONG_CLICKABLE) || best : null;
+    if (best) return { el: best.closest(STRONG_CLICKABLE) || best, visible: true };
+    return hidden ? { el: hidden, visible: false } : null;
   }
 
-  // Indices of the path steps visible in this frame. Step 0 (the site root) is skipped.
-  function visibleSteps(path) {
-    const visible = [];
-    for (let i = 1; i < path.length; i++) {
-      if (findElement(path[i])) visible.push(i);
+  // Is this frame showing the site in English or Korean? Judged from route steps found here
+  // whose Korean and English site labels differ: Hangul in the shown label means Korean mode.
+  //   → "en" | "ko" | null (unknown)
+  function pageLanguage(found) {
+    let en = 0;
+    let ko = 0;
+    for (const { item, el } of found) {
+      const english = S.labelKey(item.name_en_site);
+      if (!english || S.hasHangul(english) || !S.hasHangul(item.name_ko || "")) continue;
+      if (S.hasHangul(originalText(el))) ko++;
+      else en++;
     }
-    return visible;
+    if (en !== ko) return en > ko ? "en" : "ko";
+    const lang = (document.documentElement.lang || "").toLowerCase();
+    return lang.startsWith("en") ? "en" : lang.startsWith("ko") ? "ko" : null;
+  }
+
+  // Which path steps are in this frame. Step 0 (the site root) is skipped.
+  //   → { site, lang, visible: [indices on screen], hidden: [indices in the DOM but hidden] }
+  function probeSteps(path) {
+    const visible = [];
+    const hidden = [];
+    const found = [];
+    for (let i = 1; i < path.length; i++) {
+      const hit = findElement(path[i]);
+      if (!hit) continue;
+      (hit.visible ? visible : hidden).push(i);
+      if (hit.visible) found.push({ item: path[i], el: hit.el });
+    }
+    return { site: SITE, lang: pageLanguage(found), visible, hidden };
   }
 
   function clearPointer() {
@@ -247,10 +301,13 @@
     tip.style.left = `${Math.max(4, Math.min(r.left, innerWidth - tip.offsetWidth - 4))}px`;
   }
 
-  function showPointer(path, index, startedAt) {
+  // note: an extra line under the label, e.g. that the next menu exists only in Korean mode.
+  function showPointer(path, index, startedAt, note) {
     const item = path[index];
-    const el = item && findElement(item);
-    if (current && current.el === el && current.index === index && current.startedAt === startedAt) {
+    const hit = item && findElement(item);
+    const el = hit && hit.visible ? hit.el : null;
+    if (current && current.el === el && current.index === index && current.startedAt === startedAt &&
+        current.note === (note || "")) {
       place(); // already shown: don't scroll the page again on every refresh
       return;
     }
@@ -261,12 +318,20 @@
     const tip = document.createElement("div");
     tip.id = "sejong-nav-pointer";
     const last = index === path.length - 1;
-    tip.textContent = `${last ? "✓" : "👉"} ${[item.name_ko, item.name_en].filter(Boolean).join(" / ")}`;
+    const english = S.englishName(item);
+    const names = [S.cleanLabel(item.name_ko), english].filter((n, i, all) => n && all.indexOf(n) === i);
+    tip.textContent = `${last ? "✓" : "👉"} ${names.join(" / ")}`;
     const step = document.createElement("small");
-    step.textContent = `  ${index}/${path.length - 1}`;
+    step.textContent = `  ${index}/${path.length - 1}${item.opens_new_tab ? " · opens a new tab" : ""}`;
     tip.append(step);
+    if (note) {
+      const line = document.createElement("div");
+      line.className = "sejong-nav-note";
+      line.textContent = note;
+      tip.append(line);
+    }
     document.documentElement.append(tip);
-    current = { el, tip, index, startedAt };
+    current = { el, tip, index, startedAt, note: note || "" };
     place();
   }
 
@@ -531,11 +596,11 @@
         sendResponse({ ok: true });
         break;
       case "guide:probe":
-        sendResponse({ visible: visibleSteps(msg.path) });
+        sendResponse(probeSteps(msg.path));
         break;
       case "guide:show":
         guiding = true;
-        showPointer(msg.path, msg.index, msg.startedAt);
+        showPointer(msg.path, msg.index, msg.startedAt, msg.note);
         sendResponse({ ok: true });
         break;
       case "guide:clear":

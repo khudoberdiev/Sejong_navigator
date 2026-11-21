@@ -1,39 +1,60 @@
 <!-- AI-generated — to be rewritten by me -->
 # Search evaluation
 
-Model: `intfloat/multilingual-e5-small`, 30 questions (eval/questions.py). Regenerate with `.venv/bin/python -m eval.run_eval`.
+Model: `intfloat/multilingual-e5-small`, 30 questions (eval/questions.py), 339 menu items (data/menu_map.json, data `53e38c388f58e9fb`). Regenerate with `.venv/bin/python -m eval.run_eval`.
 
 | Setup | uz top-1 | uz top-3 | en top-1 | en top-3 | ko top-1 | ko top-3 | all top-1 | all top-3 |
 |---|---|---|---|---|---|---|---|---|
-| lexical only (w=0) | 9/10 (90%) | 9/10 (90%) | 6/10 (60%) | 7/10 (70%) | 9/10 (90%) | 9/10 (90%) | 24/30 (80%) | 25/30 (83%) |
-| semantic only (w=1) | 4/10 (40%) | 7/10 (70%) | 6/10 (60%) | 8/10 (80%) | 8/10 (80%) | 10/10 (100%) | 18/30 (60%) | 25/30 (83%) |
-| hybrid (w=0.5) | 7/10 (70%) | 9/10 (90%) | 7/10 (70%) | 9/10 (90%) | 10/10 (100%) | 10/10 (100%) | 24/30 (80%) | 28/30 (93%) |
+| lexical only (w=0) | 2/10 (20%) | 2/10 (20%) | 1/10 (10%) | 3/10 (30%) | 1/10 (10%) | 4/10 (40%) | 4/30 (13%) | 9/30 (30%) |
+| semantic only (w=1) | 0/10 (0%) | 0/10 (0%) | 2/10 (20%) | 4/10 (40%) | 3/10 (30%) | 5/10 (50%) | 5/30 (17%) | 9/30 (30%) |
+| hybrid (w=0.5) | 1/10 (10%) | 2/10 (20%) | 2/10 (20%) | 4/10 (40%) | 2/10 (20%) | 5/10 (50%) | 5/30 (17%) | 11/30 (37%) |
 
 ## Weight sweep (all languages)
 
 | w | top-1 | top-3 |
 |---|---|---|
-| 0.0 | 24/30 (80%) | 25/30 (83%) |
-| 0.3 | 26/30 (87%) | 28/30 (93%) |
-| 0.5 | 24/30 (80%) | 28/30 (93%) |
-| 0.6 | 21/30 (70%) | 28/30 (93%) |
-| 0.7 | 21/30 (70%) | 28/30 (93%) |
-| 0.8 | 20/30 (67%) | 27/30 (90%) |
-| 0.9 | 20/30 (67%) | 26/30 (87%) |
-| 1.0 | 18/30 (60%) | 25/30 (83%) |
+| 0.0 | 4/30 (13%) | 9/30 (30%) |
+| 0.3 | 4/30 (13%) | 11/30 (37%) |
+| 0.5 | 5/30 (17%) | 11/30 (37%) |
+| 0.6 | 5/30 (17%) | 10/30 (33%) |
+| 0.7 | 4/30 (13%) | 9/30 (30%) |
+| 0.8 | 4/30 (13%) | 9/30 (30%) |
+| 0.9 | 5/30 (17%) | 9/30 (30%) |
+| 1.0 | 5/30 (17%) | 9/30 (30%) |
 
 ## Hybrid top-1 failures (w=0.5)
 
 | lang | question | expected | got (top 3) | note |
 |---|---|---|---|---|
-| uz | baholarimni qayerdan ko'rsam bo'ladi | `sjpt.grade_current` | `library.my_library`, `sjpt.grade_current`, `ecampus.my_courses` | suffix -ni |
-| uz | imtihon natijalarim | `sjpt.grade_current` | `library.my_library`, `ecampus.my_courses`, `sjpt.grade_history` | no shared words |
-| uz | kutubxonadan olgan kitoblarim | `library.loans` | `library.root`, `library.my_library`, `library.loans` | suffixes |
-| en | how do I renew a libary book | `library.loans` | `library.my_library`, `library.loans`, `library.root` | typo |
-| en | where can I watch recorded lectures | `ecampus.my_courses` | `sjpt.grade_eval`, `sjpt.lecture_eval`, `library.root` | few shared words |
-| en | change my phone number and address | `sjpt.student_record_view` | `library.my_library`, `sjpt.student_record_view`, `sjpt.timetable` | no shared words |
+| uz | baholarim qayerda? | `sjpt.current_semester_grades` | `ecampus.degree_grade_check`, `portal.quick_academic`, `ecampus.user_tab_my` | the headline case |
+| uz | baholarimni qayerdan ko'rsam bo'ladi | `sjpt.current_semester_grades` | `library.my_taste`, `ecampus.user_tab_my`, `ecampus.my_courses` | suffix -ni |
+| uz | imtihon natijalarim | `sjpt.current_semester_grades` | `ecampus.tosc_exam_result`, `library.my_usage`, `library.my_taste` | no shared words |
+| uz | kutubxonadan olgan kitoblarim | `library.my_loans` | `library.summary_loans`, `library.my_shelf`, `library.my_loans` | suffixes |
+| uz | uy vazifasini qayerga yuklayman | `ecampus.my_courses` | `sjpt.move_in_management`, `library.mylib`, `library.my_facility` | suffix -ni |
+| uz | dars jadavli | `sjpt.registered_courses_inquiry_print` | `sjpt.class_timetable_syllabus_inquiry`, `portal.sjpt`, `sjpt.class_grade` | typo |
+| uz | o'qituvchini baholash so'rovnomasi | `sjpt.course_evaluation` | `sjpt.teacher_training_course_application`, `portal.quick_academic`, `library.comm_qna` | suffix -si |
+| uz | oldingi semestrlardagi barcha baholarim | `sjpt.completed_grades_inquiry` | `ecampus.dashboard_all_courses_btn`, `ecampus.user_tab_previous_course`, `sjpt.current_semester_grades` | suffixes, close to grade_current |
+| uz | kutubxonada o'qish uchun xona band qilmoqchiman | `library.fac_studyroom` | `portal.quick_library`, `sjpt.facility_use_application`, `portal.library` | long sentence |
+| en | where are my grades? | `sjpt.current_semester_grades` | `ecampus.degree_grade_check`, `sjpt.completed_grades_inquiry`, `sjpt.print_grade_report` | the headline case |
+| en | grdaes | `sjpt.current_semester_grades` | `portal.sjpt`, `sjpt.grades`, `sjpt.grades_course_evaluation` | typo |
+| en | how do I renew a libary book | `library.my_loans` | `library.quick_loans`, `library.my_loans`, `library.fac_tour` | typo |
+| en | submit homework | `ecampus.my_courses` | `library.thesis_submit`, `sjpt.tuition_installment_application`, `library.sub_quick_purchase` | short |
+| en | print my tuition invoice | `sjpt.registration_history_tuition_bill_print` | `sjpt.tuition_bill_print`, `sjpt.registration_history_tuition_bill_print`, `sjpt.scholarship_history_bill_print` |  |
+| en | my weekly class schedule | `sjpt.registered_courses_inquiry_print` | `sjpt.class_timetable_syllabus_inquiry`, `portal.academic_calendar`, `portal.class_info` |  |
+| en | where can I watch recorded lectures | `ecampus.my_courses` | `ecampus.open_course`, `portal.class_info`, `portal.ecampus` | few shared words |
+| en | reserve a quiet place to study | `library.fac_studyroom` | `portal.library`, `library.libseat_seat_map_popup`, `sjpt.facility_use_application` | few shared words |
+| ko | 성적조회 | `sjpt.current_semester_grades` | `sjpt.grade_inquiry`, `ecampus.degree_grade_check`, `sjpt.completed_grades_inquiry` | no spaces |
+| ko | 성적 조회 | `sjpt.current_semester_grades` | `ecampus.degree_grade_check`, `sjpt.grade_inquiry`, `sjpt.print_grade_report` | with spaces |
+| ko | 빌린 책 반납 기한 | `library.my_loans` | `library.use_return`, `library.guide_storage`, `sjpt.payment_bill_print` | few shared words |
+| ko | 과제 제출하는 곳 | `ecampus.my_courses` | `ecampus.user_edit_profile`, `portal.ecampus`, `ecampus.guides` | verb ending -하는 |
+| ko | 등록금 고지서 츨력 | `sjpt.registration_history_tuition_bill_print` | `sjpt.tuition_bill_print`, `sjpt.registration_history_tuition_bill_print`, `sjpt.scholarship_history_bill_print` | typo |
+| ko | 수강 신청 내역 | `sjpt.registered_courses_inquiry_print` | `sjpt.course_registration`, `portal.course_guide`, `sjpt.course_search_registration` | spacing differs from keywords |
+| ko | 장학금 받으려면 | `sjpt.scholarship_registration_student_support` | `portal.scholarships`, `sjpt.scholarship_registration_student_support`, `sjpt.regular_semester_scholarship_application` | verb ending |
+| ko | 도서관 스터디룸 예약 | `library.fac_studyroom` | `library.home_reserve_studyroom`, `library.fac_studyroom`, `library.my_rooms` |  |
 
 ## Fine-tuning
+
+> **Stale:** these fine-tuning numbers were measured on a different menu map or question set than the tables above (e.g. the old 19-item example data). Re-run `.venv/bin/python -m ml.finetune` to refresh them.
 
 Base `intfloat/multilingual-e5-small` → `models/e5-small-sejong`; synthetic pairs (templates × names/keywords); 1663 training / 118 held-out pairs; 3 epochs, lr 2e-05, temperature 0.05, 83s on cpu. Dropped 3 training questions that were near-copies of eval/questions.py.
 

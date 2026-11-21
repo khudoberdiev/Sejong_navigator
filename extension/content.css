@@ -30,6 +30,14 @@
   font-weight: 400;
 }
 
+/* e.g. "This menu only appears in Korean mode (KOR)" */
+#sejong-nav-pointer .sejong-nav-note {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.4);
+  font-weight: 400;
+}
+
 /* Recorder: short flash on the clicked element */
 .sejong-rec-ok { outline: 3px solid #1a7f37 !important; outline-offset: 2px !important; }
 .sejong-rec-skip { outline: 3px dashed #9a6700 !important; outline-offset: 2px !important; }

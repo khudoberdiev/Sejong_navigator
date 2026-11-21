@@ -29,7 +29,7 @@ def test_image_file_set_is_self_contained(tmp_path):
     for name in _copied_dirs():
         shutil.copytree(ROOT / name, tmp_path / name, ignore=shutil.ignore_patterns("__pycache__"))
     code = ("import api.main, server_ai, core; "
-            "assert core.route('portal.root', 'library.loans')[-1]['id'] == 'library.loans'; print('ok')")
+            "assert core.route('portal.root', 'sjpt.course_evaluation')[-1]['id'] == 'sjpt.course_evaluation'; print('ok')")
     proc = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True,
                           env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(tmp_path)}, timeout=120)
     assert proc.returncode == 0 and proc.stdout.strip().endswith("ok"), proc.stderr[-2000:]

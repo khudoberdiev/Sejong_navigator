@@ -33,10 +33,10 @@ def test_scores_cover_every_item(items):
 def test_query_returns_k_best_first(items):
     index = VectorIndex(FakeEmbedder())
     index.build(items)
-    result = index.query("borrowed books", 3)
+    result = index.query("Grade History Inquiry", 3)
     assert len(result) == 3
     assert [s for _, s in result] == sorted((s for _, s in result), reverse=True)
-    assert result[0][0] == "library.loans"
+    assert result[0][0] == "sjpt.completed_grades_inquiry"
 
 
 def test_empty_index():

@@ -63,7 +63,11 @@ class TinyEncoder:
 
 def test_synthetic_pairs_cover_every_item_and_language(items):
     pairs = ft.synthetic_pairs(items)
-    assert {p.item_id for p in pairs} == {i.id for i in items}
+    # Items whose every name and keyword is shared with another item (e.g. the portal's
+    # shortcut tab next to the same link in the main menu) get no pairs: they would teach noise.
+    with_unique_terms = {item_id for item_id, terms in ft._unambiguous_terms(items).items() if terms}
+    assert {p.item_id for p in pairs} == with_unique_terms
+    assert len(with_unique_terms) >= 0.9 * len(items)
     assert {p.lang for p in pairs} == {"uz", "en", "ko"}
     assert all(p.term in p.query for p in pairs)
 
@@ -74,8 +78,8 @@ def test_hangul_terms_get_korean_templates_only(items):
 
 
 def test_ambiguous_terms_are_skipped():
-    a = MenuItem("x.a", "portal", "가", "Alpha", None, "u", None, "", ("shared", "only a"))
-    b = MenuItem("x.b", "portal", "나", "Beta", "x.a", "u", None, "", ("shared",))
+    a = MenuItem("x.a", "portal", "가", "Alpha", None, "u", "", ("shared", "only a"))
+    b = MenuItem("x.b", "portal", "나", "Beta", "x.a", "u", "", ("shared",))
     terms = {p.term for p in ft.synthetic_pairs([a, b])}
     assert "shared" not in terms and "only a" in terms
 
@@ -91,10 +95,12 @@ def test_split_has_no_leakage(split):
                       "near_duplicates_of_protected": 0}
 
 
-def test_names_always_stay_in_training(split):
+def test_names_always_stay_in_training(items, split):
     train, test = split
     assert not any(p.from_name for p in test)
-    assert {p.item_id for p in train if p.from_name} == {p.item_id for p in train}
+    unique = ft._unambiguous_terms(items)
+    with_unique_name = {i.id for i in items if set(i.names()) & set(unique[i.id])}
+    assert {p.item_id for p in train if p.from_name} == with_unique_name
 
 
 def test_split_is_deterministic(items):

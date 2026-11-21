@@ -4,6 +4,7 @@ import pytest
 
 import core
 from core import navigator
+from core.data import load_menu_items
 
 
 def test_search_uses_default_weight():
@@ -16,14 +17,14 @@ def test_default_weight_is_0_5():
 
 def test_semantic_scores_are_min_max_scaled():
     scores = navigator._semantic_scores("my grades")
-    assert len(scores) == 19
+    assert len(scores) == len(load_menu_items())
     assert min(scores.values()) == pytest.approx(0.0)
     assert max(scores.values()) == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("weight", [0.0, 0.3, 0.7, 1.0])
 def test_scores_in_range_and_sorted(weight):
-    scores = [r["score"] for r in navigator.search_with_weight("library loans", 19, weight)]
+    scores = [r["score"] for r in navigator.search_with_weight("library loans", 50, weight)]
     assert scores == sorted(scores, reverse=True)
     assert all(0 < s <= 1 for s in scores)
 
@@ -57,5 +58,6 @@ def test_weight_zero_never_calls_the_embedder():
 
 def test_output_format_unchanged():
     result = core.search("grades", 1)[0]
-    assert set(result) == {"id", "site", "name_ko", "name_en", "parent_id", "url",
-                           "selector", "description", "keywords", "score"}
+    assert set(result) == {"id", "site", "name_ko", "name_en", "name_en_site", "parent_id", "url",
+                           "selector_desktop", "selector_mobile", "mobile_path_note", "frame",
+                           "opens_new_tab", "description", "keywords", "score"}

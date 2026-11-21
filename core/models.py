@@ -2,6 +2,7 @@
 """Data model for one menu item from data/menu_map.json."""
 from __future__ import annotations
 
+import html
 from dataclasses import asdict, dataclass
 from typing import Optional
 
@@ -13,15 +14,23 @@ class MenuItem:
     """One clickable menu entry on a Sejong website.
 
     Attributes:
-        id: Unique, stable id, e.g. "sjpt.grade_current".
+        id: Unique, stable id, e.g. "sjpt.current_semester_grades".
         site: One of SITES.
-        name_ko: Korean menu label exactly as shown on the site.
-        name_en: English label (official one if it exists, otherwise a translation).
-        parent_id: Id of the menu item you click before this one. None for the root.
+        name_ko: Korean menu label as shown on the site in Korean mode.
+        name_en: Our English name (a readable translation; Keep-English shows it).
+        parent_id: Id of the menu item you click before this one. None only for portal.root.
         url: Direct URL if the page has a stable one, otherwise None.
-        selector: CSS selector of the element to click/highlight, or None.
         description: Short free text that helps search (synonyms, what the page is for).
         keywords: Optional synonyms in Uzbek, English and Korean, e.g. ("baholarim", "my grades", "성적").
+        name_en_site: The label the site itself shows in English mode, exactly as recorded
+            (it may contain HTML entities such as "&#38;"). None if the site shows no
+            English label; for SJPT that means the menu exists only in Korean mode.
+        selector_desktop: CSS selector of the element in the desktop layout, or None.
+        selector_mobile: CSS selector of the element in the mobile layout, or None.
+            With both None the extension finds the element by its text.
+        mobile_path_note: Free-text hint on how to reach the item (e.g. "open hamburger ≡ first").
+        frame: Where the element lives, for humans (e.g. a WebSquare wframe); not used by code.
+        opens_new_tab: True if clicking the item opens a new browser tab.
     """
 
     id: str
@@ -30,13 +39,34 @@ class MenuItem:
     name_en: str
     parent_id: Optional[str]
     url: Optional[str]
-    selector: Optional[str]
     description: str
     keywords: tuple[str, ...] = ()
+    name_en_site: Optional[str] = None
+    selector_desktop: Optional[str] = None
+    selector_mobile: Optional[str] = None
+    mobile_path_note: Optional[str] = None
+    frame: Optional[str] = None
+    opens_new_tab: bool = False
+
+    @property
+    def site_label_en(self) -> Optional[str]:
+        """name_en_site with HTML entities decoded ("Q&#38;A" -> "Q&A"), or None."""
+        return html.unescape(self.name_en_site).strip() if self.name_en_site else None
+
+    def names(self) -> list[str]:
+        """name_ko, name_en and the site's English label, without duplicates, in that order."""
+        out: list[str] = []
+        for name in (self.name_ko, self.name_en, self.site_label_en):
+            if name and name not in out:
+                out.append(name)
+        return out
 
     def search_terms(self) -> list[str]:
-        """Return every text that search and autocomplete match against: the names, then the keywords."""
-        return [self.name_ko, self.name_en, *self.keywords]
+        """Every text that search and autocomplete match against: the names, then the keywords.
+
+        The site's English label is included because students in English mode type what they see.
+        """
+        return [*self.names(), *self.keywords]
 
     def to_dict(self) -> dict:
         """Return a plain, JSON-serialisable dict. Servers send this over the wire."""

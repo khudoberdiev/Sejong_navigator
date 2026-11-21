@@ -6,7 +6,7 @@ from index.graph import bfs_path, build_graph
 
 
 def _item(id_, parent=None):
-    return MenuItem(id_, "portal", id_, id_, parent, None, None, "")
+    return MenuItem(id_, "portal", id_, id_, parent, None, "")
 
 
 @pytest.fixture

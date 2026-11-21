@@ -10,12 +10,12 @@ pytestmark = pytest.mark.slow
 
 @pytest.mark.parametrize("query", ["where are my grades?", "baholarim qayerda?", "성적 조회", "이번 학기 학점 확인"])
 def test_hybrid_finds_grades_in_top3(query):
-    assert "sjpt.grade_current" in [r["id"] for r in core.search(query, 3)]
+    assert "sjpt.current_semester_grades" in [r["id"] for r in core.search(query, 3)]
 
 
 def test_semantic_only_handles_no_shared_words():
     ids = [r["id"] for r in navigator.search_with_weight("시험 결과 보기", 3, 1.0)]
-    assert "sjpt.grade_current" in ids
+    assert "sjpt.current_semester_grades" in ids
 
 
 def test_both_servers_match_with_the_real_model():

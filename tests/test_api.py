@@ -15,17 +15,18 @@ def test_search_matches_core():
 
 
 def test_route_matches_core():
-    response = client.get("/route", params={"from": "portal.root", "to": "library.loans"})
+    response = client.get("/route", params={"from": "portal.root", "to": "ecampus.my_courses"})
     assert response.status_code == 200
-    assert response.json() == core.route("portal.root", "library.loans")
+    assert response.json() == core.route("portal.root", "ecampus.my_courses")
 
 
 def test_route_returns_full_items_in_order():
-    path = client.get("/route", params={"from": "portal.root", "to": "sjpt.grade_current"}).json()
+    path = client.get("/route", params={"from": "portal.root", "to": "sjpt.current_semester_grades"}).json()
     assert [step["id"] for step in path] == [
-        "portal.root", "portal.sjpt", "sjpt.class_grade", "sjpt.grade_eval", "sjpt.grade_current"]
-    assert path[-1]["name_ko"] == "금학기 성적조회"
-    assert "selector" in path[-1] and "score" not in path[-1]
+        "portal.root", "portal.info_system", "portal.integrated_info", "portal.sjpt",
+        "sjpt.self_stud", "sjpt.class_grade", "sjpt.grades_course_evaluation", "sjpt.current_semester_grades"]
+    assert path[-1]["name_ko"] == "당학기성적조회"
+    assert "selector_desktop" in path[-1] and "name_en_site" in path[-1] and "score" not in path[-1]
 
 
 def test_suggest_matches_core():

@@ -2,7 +2,7 @@
 """Quick sanity check for an embedding model before it is used for search.
 
 Embeds 5 Uzbek, 5 English and 5 Korean phrasings of "where are my grades?",
-then prints the cosine similarity to the correct item (sjpt.grade_current)
+then prints the cosine similarity to the correct item (sjpt.current_semester_grades)
 next to the closest WRONG item. margin = correct - best_wrong (> 0 is good).
 
     .venv/bin/python -m eval.model_check intfloat/multilingual-e5-small [other/model ...]
@@ -14,7 +14,7 @@ import sys
 from core.data import load_menu_items
 from ml.embedder import Embedder, passage_text
 
-TARGET = "sjpt.grade_current"
+TARGET = "sjpt.current_semester_grades"
 PHRASINGS = {
     "uz": ["baholarim qayerda?", "joriy semestr baholarimni qanday ko'raman?",
            "imtihon natijalarim", "bu semestrdagi baholarni ko'rish", "GPA ni qayerdan bilsam bo'ladi"],
@@ -41,7 +41,7 @@ def check(model_name: str) -> float:
             margin = row[target] - row[wrong]
             margins.append(margin)
             flag = "ok  " if margin > 0 else "FAIL"
-            print(f"{flag} {lang} {row[target]:.3f} vs {row[wrong]:.3f} ({ids[wrong]:<22}) {query}")
+            print(f"{flag} {lang} {row[target]:.3f} vs {row[wrong]:.3f} ({ids[wrong]:<36}) {query}")
     mean = sum(margins) / len(margins)
     wins = sum(m > 0 for m in margins)
     print(f"correct item ranked first: {wins}/{len(margins)}, mean margin {mean:+.3f}")

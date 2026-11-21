@@ -294,5 +294,85 @@ test("a whole portal → SJPT walk survives a JSON round trip (storage)", () => 
   eq(S.advanceGuide(g, S.pickStep(g, [3]).show).finished, true);
 });
 
+// ------------------------------------------------------------------ finding items on the page
+
+test("decodeEntities handles numeric, hex and named entities", () => {
+  eq(S.decodeEntities("Academic Affairs Q&#38;A"), "Academic Affairs Q&A");
+  eq(S.decodeEntities("A&#x26;B &amp; C &lt;D&gt; &quot;e&quot; &apos;f&apos;"), "A&B & C <D> \"e\" 'f'");
+  eq(S.decodeEntities("a&nbsp;b"), "a b");
+  eq(S.decodeEntities("&unknown; &#0; Q&A"), "&unknown; &#0; Q&A"); // left alone
+  eq(S.decodeEntities(null), "");
+});
+
+test("labelKey decodes, trims, collapses spaces and ignores case", () => {
+  eq(S.labelKey("  Academic Affairs\n Q&#38;A "), "academic affairs q&a");
+  eq(S.labelKey("Current Semester Grade INQUIRY"), "current semester grade inquiry");
+  eq(S.labelKey("a&nbsp;&nbsp;b"), "a b");
+});
+
+test("siteNames: Korean and English-mode labels, no duplicates, no blanks", () => {
+  eq(S.siteNames({ name_ko: "당학기성적조회", name_en: "Current Semester Grades", name_en_site: "Current Semester Grade inquiry" }),
+     ["당학기성적조회", "current semester grade inquiry"]);  // name_en (our translation) is not on the site
+  eq(S.siteNames({ name_ko: "Facebook", name_en_site: "Facebook" }), ["facebook"]);
+  eq(S.siteNames({ name_ko: "수업", name_en_site: null }), ["수업"]);
+});
+
+test("selectorsFor: desktop, then mobile, then the old single selector", () => {
+  eq(S.selectorsFor({ selector_desktop: "#gnb a", selector_mobile: ".m_gnb a" }), ["#gnb a", ".m_gnb a"]);
+  eq(S.selectorsFor({ selector_desktop: null, selector_mobile: "a.btn_gnb" }), ["a.btn_gnb"]);
+  eq(S.selectorsFor({ selector: "#old" }), ["#old"]);
+  eq(S.selectorsFor({ selector_desktop: null, selector_mobile: "  " }), []); // → text matching
+});
+
+test("englishName prefers the site's own label, decoded", () => {
+  eq(S.englishName({ name_en: "Academic Q&A", name_en_site: "Academic Affairs Q&#38;A" }), "Academic Affairs Q&A");
+  eq(S.englishName({ name_en: "Classes", name_en_site: null }), "Classes");
+  eq(S.englishName(null), "");
+});
+
+const SJPT_ROUTE = [
+  { id: "portal.root", site: "portal", name_ko: "세종대학교 포털" },
+  { id: "portal.sjpt", site: "portal", name_ko: "학사정보시스템 (SJPT)", name_en_site: "Academic Information System (SJPT)", opens_new_tab: true },
+  { id: "sjpt.st", site: "sjpt", name_ko: "학생서비스", name_en_site: "Service For Student" },
+  { id: "sjpt.student_counseling_center", site: "sjpt", name_ko: "학생생활상담소", name_en_site: null },
+  { id: "sjpt.counseling", site: "sjpt", name_ko: "상담", name_en_site: null },
+];
+
+test("korOnlyStep: next step missing in an English-mode page and has no English label", () => {
+  const g = Object.assign(S.newGuide(SJPT_ROUTE, null, 1), { step: 3 });
+  const en = { site: "sjpt", lang: "en", visible: [2], hidden: [] };
+  eq(S.korOnlyStep(g, [en], 2), 3);
+  eq(S.korOnlyStep(g, [Object.assign({}, en, { lang: "ko" })], 2), -1);    // Korean mode: just not opened yet
+  eq(S.korOnlyStep(g, [Object.assign({}, en, { lang: null })], 2), -1);    // language unknown: say nothing
+  eq(S.korOnlyStep(g, [Object.assign({}, en, { hidden: [3] })], 2), -1);   // in a collapsed branch: it exists
+  eq(S.korOnlyStep(g, [Object.assign({}, en, { visible: [2, 3] })], 3), -1); // it is on screen
+  eq(S.korOnlyStep(g, [Object.assign({}, en, { site: "portal" })], 2), -1); // English portal says nothing about SJPT
+  eq(S.korOnlyStep(Object.assign({}, g, { step: 2 }), [en], 1), -1);        // the step has an English label
+  const lib = [{ id: "portal.root", site: "portal" }, { id: "library.home", site: "library", name_ko: "학술정보원", name_en_site: null }];
+  eq(S.korOnlyStep(S.newGuide(lib, null, 1), [{ site: "library", lang: "en", visible: [], hidden: [] }], -1), -1);
+  // library: English labels were never recorded, so null says nothing
+});
+
+test("guideStatus reports kor-only before missing/hint", () => {
+  const g = Object.assign(S.newGuide(SJPT_ROUTE, null, 5), { step: 3 });
+  const view = (shown, korOnly) => ({ startedAt: 5, shown, sejong: true, korOnly });
+  eq(S.guideStatus(g, view(2, 3)), { kind: "kor-only", index: 3 });
+  eq(S.guideStatus(g, view(-1, 3)), { kind: "kor-only", index: 3 });
+  eq(S.guideStatus(g, view(2, -1)), { kind: "hint", index: 2 });
+  eq(S.guideStatus(g, view(2, undefined)), { kind: "hint", index: 2 }); // views saved before this field existed
+});
+
+test("a collapsed SJPT branch: the nearest visible parent step is highlighted until it is opened", () => {
+  let g = Object.assign(S.newGuide(SJPT_ROUTE, null, 7), { step: 2 });
+  // SJPT tab, tree collapsed: 학생서비스 visible, 학생생활상담소 and 상담 in the DOM but hidden
+  let p = S.pickStep(g, [2]);
+  eq(p, { show: 2, step: 2 });
+  g = S.advanceGuide(g, p.show).guide;                       // user opens 학생서비스
+  p = S.pickStep(g, [2, 3]);                                 // its children are now on screen
+  eq(p, { show: 3, step: 3 });
+  g = S.advanceGuide(g, p.show).guide;                       // user expands 학생생활상담소
+  eq(S.pickStep(g, [2, 3, 4]), { show: 4, step: 4 });
+});
+
 print("RESULT " + JSON.stringify({ passed, failures }));
 print("EXPORT " + JSON.stringify(exported));

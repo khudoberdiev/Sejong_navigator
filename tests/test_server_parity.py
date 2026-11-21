@@ -65,8 +65,8 @@ CASES = [
     ("GET", "/search", None),                                # 400 missing q
     ("GET", "/search?q=", None),                             # 400 empty
     ("GET", "/search?q=%3F%21", None),                       # 400 only punctuation
-    ("GET", "/route?from=portal.root&to=sjpt.grade_current", None),
-    ("GET", "/route?from=library.loans&to=ecampus.assignments", None),
+    ("GET", "/route?from=portal.root&to=sjpt.current_semester_grades", None),
+    ("GET", "/route?from=ecampus.my_courses&to=sjpt.course_evaluation", None),
     ("GET", "/route?from=portal.root&to=nope", None),        # 404
     ("GET", "/route?from=portal.root", None),                # 400 missing to
     ("GET", "/suggest?prefix=" + q("ㅈㅏㅇ"), None),
@@ -147,7 +147,7 @@ def test_pipelined_requests_in_one_packet(tcp_server):
             b"GET /suggest?prefix=Cur HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
     reply = _raw(tcp_server, data)
     assert reply.count(b"HTTP/1.1 200 OK") == 2
-    assert b"Current Loans" in reply
+    assert b"Current Semester Grades" in reply
 
 
 def test_connection_close_and_http10(tcp_server):
@@ -193,7 +193,7 @@ def test_one_thread_per_connection_handles_parallel_clients(tcp_server):
     results = []
 
     def client():
-        results.append(ask_tcp(tcp_server, "GET", "/route?from=portal.root&to=library.loans")[0])
+        results.append(ask_tcp(tcp_server, "GET", "/route?from=portal.root&to=sjpt.current_semester_grades")[0])
 
     threads = [threading.Thread(target=client) for _ in range(20)]
     for t in threads:

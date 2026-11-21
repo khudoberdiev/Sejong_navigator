@@ -37,11 +37,12 @@ def prefixes_for(model_name: str) -> dict[str, str]:
 def passage_text(item: MenuItem) -> str:
     """The text that represents one menu item for the embedding model.
 
-    Korean name, English name, keywords and description joined in one line, e.g.
-    "금학기 성적조회. Current Semester Grade Inquiry. baholar, grades, 성적. See your grades ..."
+    Korean name, English name, the site's English label (if different), keywords and
+    description joined in one line, e.g.
+    "당학기성적조회. Current Semester Grades. Current Semester Grade inquiry. baholarim, grades, 성적. View ..."
     Changing this changes every vector; the disk cache notices (it hashes the texts).
     """
-    parts = [item.name_ko, item.name_en, ", ".join(item.keywords), item.description]
+    parts = [*item.names(), ", ".join(item.keywords), item.description]
     return ". ".join(p.strip().rstrip(".") for p in parts if p.strip())
 
 

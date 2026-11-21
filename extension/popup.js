@@ -132,9 +132,10 @@ async function runSearch(text) {
       return;
     }
     ol.replaceChildren(...results.map((item) => {
+      const english = S.englishName(item);
       const li = el("li", {},
-        el("div", { class: "ko" }, item.name_ko || item.name_en),
-        item.name_en && item.name_ko ? el("div", {}, item.name_en) : null,
+        el("div", { class: "ko" }, item.name_ko || english),
+        english && item.name_ko ? el("div", {}, english) : null,
         el("div", { class: "meta" }, el("span", { class: "site" }, item.site), el("span", {}, `score ${item.score.toFixed(2)}`)));
       li.addEventListener("click", () => {
         for (const other of ol.children) other.classList.remove("chosen");
@@ -155,8 +156,8 @@ function renderCrumbs(ol, path, highlightIndex = -1, doneBefore = 0) {
     class: i === highlightIndex ? "current" : (i > 0 && i < doneBefore ? "done" : ""),
   },
     el("span", { class: "crumb" },
-      el("span", {}, item.name_ko || item.name_en || item.id),
-      item.name_ko && item.name_en ? el("span", { class: "en" }, item.name_en) : null))));
+      el("span", {}, item.name_ko || S.englishName(item) || item.id),
+      item.name_ko && S.englishName(item) ? el("span", { class: "en" }, S.englishName(item)) : null))));
 }
 
 async function showRoute(item) {
@@ -175,7 +176,10 @@ async function showRoute(item) {
 // background.js owns the guide and writes it to chrome.storage.session; the panel only
 // renders it: on open, on every storage change, and when the active tab changes.
 let panelWindowId = null;
-const nameOf = (item) => (item && (item.name_ko || item.name_en || item.id)) || "";
+const nameOf = (item) => (item && (item.name_ko || S.englishName(item) || item.id)) || "";
+// "학사정보시스템 (SJPT) / Academic Information System (SJPT)": what the page shows in either mode.
+const bothNames = (item) => [nameOf(item), S.englishName(item)].filter((n, i, all) => n && all.indexOf(n) === i).join(" / ");
+const newTabHint = (item) => (item && item.opens_new_tab ? " It opens in a new tab; the guide continues there." : "");
 
 async function guideState() {
   const tabId = await activeTabId();
@@ -203,12 +207,16 @@ function guideText(guide, info) {
   const shown = guide.route[info.index];
   const of = `Step ${guide.step} of ${last}`;
   switch (info.kind) {
-    case "here": return `You are there: “${nameOf(shown)}” is highlighted. Click it to finish.`;
-    case "next": return `Step ${info.index} of ${last}: click the highlighted “${nameOf(shown)}”.`;
-    case "hint": return `${of}: open “${nameOf(shown)}” first (highlighted), then click “${nameOf(step)}”.`;
-    case "missing": return `${of}: “${nameOf(step)}” is not visible on this page yet.`;
-    case "other-tab": return `${of}: “${nameOf(step)}”. This tab is not a Sejong page; switch to the Sejong tab.`;
-    default: return `${of}: “${nameOf(step)}”. Checking this tab…`;
+    case "here": return `You are there: “${bothNames(shown)}” is highlighted. Click it to finish.`;
+    case "next": return `Step ${info.index} of ${last}: click the highlighted “${bothNames(shown)}”.${newTabHint(shown)}`;
+    case "hint": return `${of}: open “${bothNames(shown)}” first (highlighted), then click “${bothNames(step)}”.${newTabHint(shown)}`;
+    case "kor-only": return `${S.KOR_ONLY_NOTE}. Switch the site to KOR, then look for “${nameOf(guide.route[info.index])}”.`;
+    case "missing": {
+      const note = step && step.mobile_path_note ? ` Path: ${step.mobile_path_note}` : "";
+      return `${of}: “${bothNames(step)}” is not visible on this page yet.${note}`;
+    }
+    case "other-tab": return `${of}: “${bothNames(step)}”. This tab is not a Sejong page; switch to the Sejong tab.`;
+    default: return `${of}: “${bothNames(step)}”. Checking this tab…`;
   }
 }
 
