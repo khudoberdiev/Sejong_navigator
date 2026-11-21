@@ -23,6 +23,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from core import ranking
 from core.data import load_menu_items
 from core.models import MenuItem
 from index.edit_distance import similarity
@@ -53,6 +54,17 @@ _cache_dir: Path | None = DEFAULT_CACHE_DIR
 @lru_cache(maxsize=1)
 def _graph() -> dict[str, list[str]]:
     return build_graph(load_menu_items().values())
+
+
+@lru_cache(maxsize=1)
+def _info() -> dict[str, ranking.ItemInfo]:
+    return ranking.classify(load_menu_items())
+
+
+def _item_dict(item: MenuItem) -> dict:
+    """What servers send for one item: its fields + kind ("page"|"folder"|"entry") + entry_for."""
+    info = _info()[item.id]
+    return {**item.to_dict(), "kind": info.kind, "entry_for": info.entry_for}
 
 
 @lru_cache(maxsize=1)
@@ -96,7 +108,7 @@ def use_embedder(embedder, cache_dir: Path | None = None) -> None:
 
 def reset_caches() -> None:
     """Forget the loaded menu map and every index built from it."""
-    for cached in (load_menu_items, _graph, _trie, _search_terms, _vector_index):
+    for cached in (load_menu_items, _graph, _info, _trie, _search_terms, _vector_index):
         cached.cache_clear()
 
 
@@ -168,6 +180,10 @@ def search(query: str, k: int) -> list[dict]:
       final = w × semantic + (1 − w) × lexical,   w = SEMANTIC_WEIGHT (default 0.5)
       * lexical: edit-distance matching against names and keywords (_term_score)
       * semantic: embedding cosine, min-max scaled per query (_semantic_scores)
+    Then core/ranking.py turns word matches into intent (see its docstring):
+      * a hit on an item inside an external system (libseat) counts for the link that opens it
+      * final = text score × prior: page 1.0 > folder 0.8 > entry link 0.7, and × 0.7 for the
+        Sejong Language Institute's menus unless the query asks for them
     The best k items are picked with a heap (index/topk.py). Items scoring 0 are dropped.
 
     Args:
@@ -175,8 +191,8 @@ def search(query: str, k: int) -> list[dict]:
         k: Maximum number of results, 1 <= k <= MAX_K (50).
 
     Returns:
-        Up to k dicts, best first. Each has every MenuItem field plus
-        ``"score": float`` in [0, 1] (higher is better, rounded to 4 decimals).
+        Up to k dicts, best first. Each has every MenuItem field, ``"kind"``,
+        ``"entry_for"`` and ``"score": float`` in [0, 1] (higher is better, rounded to 4 decimals).
         Ties are broken by id. With w > 0 almost every query returns
         something, so check the score; with w = 0, [] means no lexical match.
 
@@ -199,13 +215,20 @@ def search_with_weight(query: str, k: int, weight: float) -> list[dict]:
     lexical = _lexical_scores(q)
     semantic = _semantic_scores(query.strip()) if weight > 0 else {}
 
-    scored = []
-    for item, _ in _search_terms():  # sorted by id, so ties go to the smaller id
+    text_scores = []
+    for item, _ in _search_terms():
         score = weight * semantic.get(item.id, 0.0) + (1 - weight) * lexical[item.id]
         if score > 0:
-            scored.append((round(score, 4), item))
+            text_scores.append((score, item.id))
+    info = _info()
+    items = load_menu_items()
+    scored = []
+    for item_id, score in sorted(ranking.fold(text_scores, info).items()):  # by id: ties go to the smaller id
+        final = round(score * ranking.prior(info[item_id], q), 4)
+        if final > 0:
+            scored.append((final, items[item_id]))
 
-    return [{**item.to_dict(), "score": score} for score, item in top_k(scored, k)]
+    return [{**_item_dict(item), "score": score} for score, item in top_k(scored, k)]
 
 
 def route(from_id: str, to_id: str) -> list[dict]:
@@ -227,14 +250,14 @@ def route(from_id: str, to_id: str) -> list[dict]:
 
     Returns:
         One dict per step, from from_id to to_id (both included), in click
-        order. Each dict has every MenuItem field (the same fields as a search
-        result, without "score"). [item] if from_id == to_id. [] if no path exists.
+        order. Each dict has every MenuItem field, "kind" and "entry_for" (the same
+        fields as a search result, without "score"). [item] if from_id == to_id. [] if no path exists.
 
     Raises:
         KeyError: if either id is not in the menu map.
     """
     items = load_menu_items()
-    return [items[item_id].to_dict() for item_id in bfs_path(_graph(), from_id, to_id)]
+    return [_item_dict(items[item_id]) for item_id in bfs_path(_graph(), from_id, to_id)]
 
 
 def suggest(prefix: str) -> list[str]:

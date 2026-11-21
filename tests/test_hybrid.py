@@ -3,7 +3,7 @@
 import pytest
 
 import core
-from core import navigator
+from core import navigator, ranking
 from core.data import load_menu_items
 
 
@@ -29,20 +29,28 @@ def test_scores_in_range_and_sorted(weight):
     assert all(0 < s <= 1 for s in scores)
 
 
-def test_score_is_the_weighted_sum():
+def test_score_is_the_weighted_sum_times_the_prior():
     q = "borrowed books"
     lexical = navigator._lexical_scores(navigator.normalize(q))
     semantic = navigator._semantic_scores(q)
-    top = navigator.search_with_weight(q, 1, 0.7)[0]
-    expected = 0.7 * semantic[top["id"]] + 0.3 * lexical[top["id"]]
-    assert top["score"] == pytest.approx(expected, abs=1e-4)
+    for top in navigator.search_with_weight(q, 5, 0.7):
+        if navigator._info()[top["id"]].fold_to != top["id"] or any(
+                i.fold_to == top["id"] and k != top["id"] for k, i in navigator._info().items()):
+            continue  # folded scores are the best of several items: checked in tests/test_ranking.py
+        prior = ranking.prior(navigator._info()[top["id"]], navigator.normalize(q))
+        expected = prior * (0.7 * semantic[top["id"]] + 0.3 * lexical[top["id"]])
+        assert top["score"] == pytest.approx(expected, abs=1e-4)
 
 
 def test_weight_one_ignores_lexical():
     q = "library"
     semantic = navigator._semantic_scores(q)
+    info = navigator._info()
+    folded = ranking.fold(((s, i) for i, s in semantic.items() if s > 0), info)
+    expected = sorted((round(s * ranking.prior(info[i], navigator.normalize(q)), 4) for i, s in folded.items()),
+                      reverse=True)[:3]
     results = navigator.search_with_weight(q, 3, 1.0)
-    assert [r["score"] for r in results] == [round(v, 4) for v in sorted(semantic.values(), reverse=True)[:3]]
+    assert [r["score"] for r in results] == expected
 
 
 def test_weight_zero_never_calls_the_embedder():
@@ -60,4 +68,4 @@ def test_output_format_unchanged():
     result = core.search("grades", 1)[0]
     assert set(result) == {"id", "site", "name_ko", "name_en", "name_en_site", "parent_id", "url",
                            "selector_desktop", "selector_mobile", "mobile_path_note", "frame",
-                           "opens_new_tab", "description", "keywords", "score"}
+                           "opens_new_tab", "description", "keywords", "kind", "entry_for", "score"}

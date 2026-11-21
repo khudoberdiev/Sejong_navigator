@@ -482,7 +482,8 @@
   }
 
   // What the side panel says for one tab. view = that tab's "guideView:<tabId>" or null.
-  //   → { kind, index }  kind: pending | reload | other-tab | kor-only | missing | hint | next | here
+  //   → { kind, index }  kind: pending | reload | other-tab | kor-only | other-site | missing | hint | next | here
+  //   other-site: the step is on another Sejong site than this tab (view.site)
   //   reload: a Sejong page where the content script could not be injected (view.injectFailed)
   function guideStatus(guide, view) {
     const last = guide.route.length - 1;
@@ -490,12 +491,80 @@
     if (view.injectFailed) return { kind: "reload", index: guide.step };
     if (!view.sejong) return { kind: "other-tab", index: guide.step };
     if (Number.isInteger(view.korOnly) && view.korOnly >= 0) return { kind: "kor-only", index: view.korOnly };
+    // The step to click is on another Sejong site than this tab (and nothing from here on is
+    // visible): say so and offer to open that site; never "not visible on this page".
+    const next = guide.route[guide.step];
+    if (view.site && next && next.site && next.site !== view.site && view.shown < guide.step) {
+      return { kind: "other-site", index: guide.step };
+    }
     if (view.shown < 0) return { kind: "missing", index: guide.step };
     if (view.shown === last) return { kind: "here", index: last };
     if (view.shown < guide.step) return { kind: "hint", index: view.shown };
     return { kind: "next", index: view.shown };
   }
 
+
+
+  // ------------------------------------------------------------------ sites in the guide
+
+  // A site's name for users (never the internal code). inSentence: the form that follows
+  // "is on" / "already in" ("the Portal"); otherwise the bare label ("Portal": buttons, results).
+  function siteName(site, t, inSentence) {
+    switch (site) {
+      case "portal": return inSentence ? t("site_in_portal") : t("site_portal");
+      case "sjpt": return inSentence ? t("site_in_sjpt") : t("site_sjpt");
+      case "ecampus": return inSentence ? t("site_in_ecampus") : t("site_ecampus");
+      case "library": return inSentence ? t("site_in_library") : t("site_library");
+      default: return inSentence ? t("site_in_other") : t("site_other");
+    }
+  }
+
+  // The page a site starts on ("Open Portal" when no tab of it is open).
+  function siteHome(site) {
+    return ROOTS[site] ? ROOTS[site].url : null;
+  }
+
+  function siteOfUrl(url) {
+    const m = /^https?:\/\/([^/?#:]+)/i.exec(String(url || ""));
+    return m ? siteForHost(m[1]) : null;
+  }
+
+  // Start where the student IS. route comes from the backend starting at portal.root. If the
+  // current site appears later in it, drop the earlier steps on other sites: the step before the
+  // first one on this site becomes route[0] (never highlighted), e.g. on the library site
+  //   portal → 학생서비스 → 기타 서비스 → 학술정보원 → 세종대학교 학술정보원 → …
+  // becomes 학술정보원 → 세종대학교 학술정보원 → …  Unchanged when the route starts on this
+  // site or never visits it (then the first step says which site it is on).
+  function trimRouteForSite(route, site) {
+    const list = Array.isArray(route) ? route : [];
+    if (!site || !list.length || list[0].site === site) return list;
+    let first = -1;
+    for (let i = 1; i < list.length; i++) {
+      if (list[i].site === site) { first = i; break; }
+    }
+    return first > 1 ? list.slice(first - 1) : list;
+  }
+
+  // The result is an entry link INTO the site the student is already on (portal.library while
+  // on library.sejong.ac.kr): following it would only open the site again.
+  function entryOnSite(item, site) {
+    return !!item && !!site && item.kind === "entry" && item.entry_for === site;
+  }
+
+  // The highlighted step opens another Sejong site in a new tab → that site, else null.
+  function newTabSite(route, index) {
+    const item = (route || [])[index];
+    const next = (route || [])[index + 1];
+    return item && next && item.opens_new_tab && next.site && next.site !== item.site ? next.site : null;
+  }
+
+  // An open tab on `site` to reuse instead of opening another one: the most recently used,
+  // never `excludeTabId` (the tab the click came from). tabs: chrome.tabs.Tab[] → tab or null
+  function pickTabForSite(tabs, site, excludeTabId) {
+    const candidates = (tabs || []).filter((tab) => tab && tab.id !== excludeTabId && siteOfUrl(tab.url) === site);
+    candidates.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+    return candidates[0] || null;
+  }
 
   // ------------------------------------------------------------------ UI text (i18n)
 
@@ -562,10 +631,9 @@
       case "next": return t("status_next", [info.index, last, bothNames(shown)]) + newTab(shown);
       case "hint": return t("status_hint", [of, bothNames(shown), bothNames(step)]) + newTab(shown);
       case "kor-only": return t("status_kor_only", [t("kor_only"), nameOf(guide.route[info.index])]);
-      case "missing": {
-        const note = step && step.mobile_path_note ? " " + t("hint_path_note", [step.mobile_path_note]) : "";
-        return t("status_missing", [of, bothNames(step)]) + note;
-      }
+      // Only plain messages: never mobile_path_note, selectors or other internal fields.
+      case "other-site": return t("status_other_site", [of, bothNames(step), siteName(step.site, t, true)]);
+      case "missing": return t("status_missing", [of, bothNames(step)]);
       case "reload": return t("status_reload", [t("reload_page"), of, bothNames(step)]);
       case "other-tab": return t("status_other_tab", [of, bothNames(step)]);
       default: return t("status_pending", [of, bothNames(step)]);
@@ -655,6 +723,7 @@
     FRAME_PAD, FRAME_BORDER, frameGeometry, contentScriptMissing,
     newGuide, isGuide, pickStep, advanceGuide, korOnlyStep, guideStatus,
     formatMessage, makeTranslator, nameOf, bothNames, crumbsModel, guideMessage, idleMessage,
+    siteName, siteHome, siteOfUrl, trimRouteForSite, entryOnSite, newTabSite, pickTabForSite,
     WIDGET_MODES, DEFAULT_WIDGET_MODE, WIDGET_MARGIN, widgetMode, clampWidget, placeWidget,
   });
 })(globalThis);

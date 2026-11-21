@@ -208,15 +208,6 @@
     "message": "It opens in a new tab; the guide continues there.",
     "description": "Appended to a status line."
   },
-  "hint_path_note": {
-    "message": "Path: $note$",
-    "description": "Recorded hint on how to reach the menu (not translated: it comes from the data).",
-    "placeholders": {
-      "note": {
-        "content": "$1"
-      }
-    }
-  },
   "kor_only": {
     "message": "This menu only appears in Korean mode (KOR)",
     "description": "Shown when an SJPT menu has no English-mode version."
@@ -500,6 +491,88 @@
     "message": "Import failed: $error$",
     "placeholders": {
       "error": {
+        "content": "$1"
+      }
+    }
+  },
+  "site_portal": {
+    "message": "Portal",
+    "description": "Site name on buttons and results."
+  },
+  "site_sjpt": {
+    "message": "SJPT",
+    "description": "Site name on buttons and results (the academic information system)."
+  },
+  "site_ecampus": {
+    "message": "e-Campus",
+    "description": "Site name on buttons and results."
+  },
+  "site_library": {
+    "message": "Library",
+    "description": "Site name on buttons and results."
+  },
+  "site_other": {
+    "message": "another site",
+    "description": "Fallback site name."
+  },
+  "site_in_portal": {
+    "message": "the Portal",
+    "description": "Site name inside a sentence: 'is on the Portal', 'already in the Portal'."
+  },
+  "site_in_sjpt": {
+    "message": "SJPT",
+    "description": "Site name inside a sentence."
+  },
+  "site_in_ecampus": {
+    "message": "e-Campus",
+    "description": "Site name inside a sentence."
+  },
+  "site_in_library": {
+    "message": "the Library",
+    "description": "Site name inside a sentence: 'already in the Library'."
+  },
+  "site_in_other": {
+    "message": "another site",
+    "description": "Fallback site name inside a sentence."
+  },
+  "status_other_site": {
+    "message": "$step_of$: this step (“$name$”) is on $site$.",
+    "description": "The step to click is on another Sejong site than this tab.",
+    "placeholders": {
+      "step_of": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      },
+      "site": {
+        "content": "$3"
+      }
+    }
+  },
+  "open_site": {
+    "message": "Open $site$",
+    "description": "Button: open (or switch to) that site's tab.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "already_on_site": {
+    "message": "You are already in $site$.",
+    "description": "The result is a link into the site the student is on.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "show_instead": {
+    "message": "Show “$name$” instead",
+    "description": "Button: guide to this result on the current site.",
+    "placeholders": {
+      "name": {
         "content": "$1"
       }
     }

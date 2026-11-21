@@ -3032,14 +3032,14 @@
       "keywords": [
         "Reading room seat assignment",
         "열람실 좌석배정 이용",
-        "o'rindiq band qilish",
         "o'qish zali",
-        "seat reservation",
-        "좌석예약",
         "열람실",
         "좌석배정",
         "kutubxona",
-        "도서관"
+        "도서관",
+        "seat assignment rules",
+        "좌석배정 안내",
+        "o'rindiq qoidalari"
       ]
     },
     {
@@ -4254,7 +4254,7 @@
         "좌석배정",
         "o'rindiq",
         "열람실",
-        "좌석예약"
+        "좌석배정 안내"
       ]
     },
     {
@@ -4313,14 +4313,20 @@
       "mobile_path_note": "Same block on mobile; opens libseat.sejong.ac.kr in a new tab.",
       "frame": null,
       "opens_new_tab": true,
-      "description": "Open the separate seat system (libseat.sejong.ac.kr) room list showing total/used/free seats per reading room.",
+      "description": "Open the seat booking system (libseat): see free reading-room seats and reserve one.",
       "keywords": [
         "seat status",
         "좌석현황",
         "o'rindiq holati",
         "libseat",
         "열람실 배정현황",
-        "bo'sh joy"
+        "bo'sh joy",
+        "seat reservation",
+        "seat booking",
+        "reserve a seat",
+        "좌석예약",
+        "열람실 좌석 예약",
+        "o'rindiq band qilish"
       ]
     },
     {
@@ -4801,8 +4807,7 @@
         "도서관",
         "학술정보원",
         "book search",
-        "kitob",
-        "seat reservation"
+        "kitob"
       ]
     },
     {

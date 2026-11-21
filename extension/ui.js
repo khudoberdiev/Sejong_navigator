@@ -10,10 +10,14 @@
 //     send(msg)      → answer data (throws on {ok:false})
 //     getState()     → {guide, last, view} for the tab this UI is about
 //     tabId()        → that tab's id (undefined: background uses the sender's tab)
+//     site()         → the Sejong site that tab is on ("portal", "library", ...) or null
 //     openUrl(url)   → navigate that tab
 //     onGuideStarted() optional: the widget switches to its compact view
 //   }
 // All text comes from SejongI18n (_locales/*/messages.json); menu names stay Korean + English.
+// Internal fields (selectors, mobile_path_note, ids, site codes) are never shown.
+// The click path starts where the student is (S.trimRouteForSite): on the library site, a guide
+// to a library page does not send them back to the portal first.
 (function (root) {
   "use strict";
 
@@ -42,7 +46,9 @@
 
   function mount(container, adapter) {
     // ---- model: survives a rebuild (UI language change)
-    const model = { query: "", results: null, chosen: -1, searching: false, path: [], targetId: null, error: "" };
+    // path: the full route from the backend (from portal.root); shown and started trimmed to the
+    // tab's site. notice: "You are already in the Library" + the better result it offers.
+    const model = { query: "", results: null, chosen: -1, searching: false, path: [], targetId: null, error: "", notice: null };
     const settings = { keepEnglish: true, translatePopups: true, display: "widget", uiLanguage: "auto" };
     let languages = [];
     let parts = null;
@@ -67,6 +73,9 @@
       const open = el("button", { hidden: true });
       const stop = el("button", { text: t("stop") });
       const status = el("p", { class: "muted status", "aria-live": "polite" });
+      const noticeText = el("span");
+      const noticeButton = el("button", { class: "primary" });
+      const notice = el("div", { class: "banner notice", hidden: true }, noticeText, el("div", { class: "row" }, noticeButton));
       const route = el("div", { class: "route", hidden: true },
         el("h3", { text: t("click_path") }), crumbs, el("div", { class: "row" }, start, open, stop), status);
       const error = el("p", { class: "banner", hidden: !model.error, text: model.error });
@@ -93,10 +102,11 @@
         displayHint,
         select("uiLanguage", [["auto", t("ui_language_auto")], ...languages.map((l) => [l.code, l.name])], t("setting_ui_language")));
 
-      container.replaceChildren(error, el("div", { class: "search-box" }, q, suggestions), results, route, settingsBox);
-      parts = { q, suggestions, results, route, crumbs, start, open, stop, status, error };
+      container.replaceChildren(error, el("div", { class: "search-box" }, q, suggestions), results, notice, route, settingsBox);
+      parts = { q, suggestions, results, route, crumbs, start, open, stop, status, error, notice, noticeText, noticeButton };
       wire();
       renderResults();
+      renderNotice();
       renderGuide();
     }
 
@@ -158,8 +168,9 @@
 
       parts.start.addEventListener("click", async () => {
         if (model.path.length < 2) return;
+        const path = S.trimRouteForSite(model.path, await adapter.site()); // start where the student is
         try {
-          await adapter.send({ type: "guide:start", tabId: await adapter.tabId(), path: model.path, targetId: model.targetId });
+          await adapter.send({ type: "guide:start", tabId: await adapter.tabId(), path, targetId: model.targetId });
         } catch (e) {
           parts.status.textContent = t("cannot_guide", [e.message]);
           return;
@@ -206,7 +217,7 @@
         const li = el("li", { class: i === model.chosen ? "chosen" : "" },
           el("div", { class: "ko", text: item.name_ko || english }),
           english && item.name_ko ? el("div", { text: english }) : null,
-          el("div", { class: "meta" }, el("span", { class: "site", text: item.site }),
+          el("div", { class: "meta" }, el("span", { class: "site", text: S.siteName(item.site, t) }),
             el("span", { text: t("score", [item.score.toFixed(2)]) })));
         li.addEventListener("click", () => choose(i));
         return li;
@@ -216,7 +227,51 @@
     async function choose(i) {
       model.chosen = i;
       renderResults();
-      const item = model.results[i];
+      await showItem(model.results[i]);
+    }
+
+    // An entry link into the site the student is already on (portal.library while on the
+    // library site): say so, and offer the best result that is ON this site instead.
+    async function offerInsteadOfEntry(item, site) {
+      let better = null;
+      try {
+        const wider = await adapter.send({ type: "api:search", query: model.query, k: 20 });
+        better = wider.find((r) => r.site === site && r.kind !== "entry") || null;
+      } catch (e) { /* keep the message without an offer */ }
+      if (destroyed) return;
+      model.notice = { text: t("already_on_site", [S.siteName(site, t, true)]), better };
+      renderNotice();
+    }
+
+    function renderNotice() {
+      const n = model.notice;
+      parts.notice.hidden = !n;
+      if (!n) return;
+      parts.noticeText.textContent = n.text;
+      parts.noticeButton.hidden = !n.better;
+      if (n.better) {
+        parts.noticeButton.textContent = t("show_instead", [S.bothNames(n.better)]);
+        parts.noticeButton.onclick = () => {
+          model.notice = null;
+          renderNotice();
+          if (!model.results.some((r) => r.id === n.better.id)) model.results = [n.better, ...model.results];
+          model.chosen = model.results.findIndex((r) => r.id === n.better.id);
+          renderResults();
+          showItem(n.better);
+        };
+      }
+    }
+
+    async function showItem(item) {
+      model.notice = null;
+      renderNotice();
+      const site = await adapter.site();
+      if (S.entryOnSite(item, site)) {
+        model.path = [];
+        model.targetId = null;
+        parts.route.hidden = true;
+        return offerInsteadOfEntry(item, site);
+      }
       try {
         // route() returns the full items: names for the breadcrumbs, selectors/names for the guide
         model.path = await adapter.send({ type: "api:route", from: CONFIG.ROOT_ID, to: item.id });
@@ -225,6 +280,15 @@
       } catch (e) {
         showError(e);
       }
+    }
+
+    // The step is on another Sejong site: "Open Portal" (background reuses an open tab of it).
+    function offerSite(site) {
+      parts.open.hidden = false;
+      parts.open.textContent = t("open_site", [S.siteName(site, t)]);
+      parts.open.onclick = async () => {
+        try { await adapter.send({ type: "tab:openSite", site, tabId: await adapter.tabId() }); } catch (e) { showError(e); }
+      };
     }
 
     function offerOpen(route) {
@@ -263,10 +327,13 @@
         const info = S.guideStatus(guide, view);
         renderCrumbs(parts.crumbs, guide.route, info.index, guide.step);
         parts.status.textContent = S.guideMessage(guide, info, t);
-        if (info.kind === "missing" || info.kind === "other-tab") offerOpen(guide.route);
+        if (info.kind === "other-site") offerSite(guide.route[info.index].site);
+        else if (info.kind === "missing" || info.kind === "other-tab") offerOpen(guide.route);
         return;
       }
-      renderCrumbs(parts.crumbs, model.path);
+      const site = await adapter.site();
+      if (token !== renderToken || destroyed) return; // a newer render started while we asked
+      renderCrumbs(parts.crumbs, S.trimRouteForSite(model.path, site));
       parts.status.textContent = S.idleMessage(model.path, model.targetId, guide, last, t);
     }
 

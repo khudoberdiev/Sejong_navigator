@@ -212,11 +212,16 @@ async function runGuide(tabId) {
     ? Object.assign({}, g, { step: pick.step }) : undefined));
   if (!now || now.startedAt !== guide.startedAt) return { active: false };
   const korOnly = S.korOnlyStep(now, probes, pick.show);
+  // The highlighted step opens another Sejong site in a new tab, and a tab of that site is
+  // already open: content.js then catches the click and we focus that tab instead (reuse).
+  const reuse = pick.show >= 0 && !!(await existingSiteTab(S.newTabSite(guide.route, pick.show), tabId));
   await Promise.all(frames.map((f) => sendToFrame(tabId, f.frameId, target && f.frameId === target.frameId
-    ? { type: "guide:show", path: guide.route, index: pick.show, startedAt: guide.startedAt }
+    ? { type: "guide:show", path: guide.route, index: pick.show, startedAt: guide.startedAt, reuse }
     : { type: "guide:clear", guiding: true })));
+  const top = probes.find((p) => p.frameId === 0) || probes[0];
   const view = {
     startedAt: guide.startedAt, shown: pick.show, step: now.step, sejong: probes.length > 0, korOnly, injectFailed,
+    site: top ? top.site : null, // which Sejong site this tab is on (guideStatus: "other-site")
     at: Date.now(),
   };
   await chrome.storage.session.set({ [viewKey(tabId)]: view });
@@ -271,15 +276,55 @@ async function endGuide(outcome) {
 
 async function guideClicked(msg, sender) {
   let finished = false;
+  let route = null;
   await updateGuide((g) => {
     if (!S.isGuide(g) || g.startedAt !== msg.startedAt) return undefined; // a click on an old guide's highlight
+    route = g.route;
     const r = S.advanceGuide(g, msg.index);
     finished = r.finished;
     return finished ? undefined : r.guide;
   });
-  if (finished) await endGuide("finished");
-  else if (sender.tab) scheduleGuide(sender.tab.id);
+  if (finished) {
+    await endGuide("finished");
+  } else if (msg.reuse && route) {
+    // content.js kept the link from opening yet another tab: continue in the open one.
+    const site = S.newTabSite(route, msg.index);
+    const reused = await focusSiteTab(site, sender.tab && sender.tab.id);
+    if (!reused) { // it was closed in the meantime: open the step's link after all
+      const url = route[msg.index].url || S.siteHome(site);
+      if (url) await chrome.tabs.create({ url, openerTabId: sender.tab && sender.tab.id });
+    }
+  } else if (sender.tab) {
+    scheduleGuide(sender.tab.id);
+  }
   return { finished };
+}
+
+// ---- reusing tabs: one tab per Sejong site, not a new one on every run
+
+async function existingSiteTab(site, excludeTabId) {
+  if (!site) return null;
+  const host = (S.siteHome(site) || "").replace(/^https?:\/\//, "");
+  const tabs = await chrome.tabs.query({ url: `*://${host}/*` }).catch(() => []);
+  return S.pickTabForSite(tabs, site, excludeTabId);
+}
+
+// Bring an open tab of `site` to the front and continue the guide there. → the tab, or null
+async function focusSiteTab(site, excludeTabId) {
+  const tab = await existingSiteTab(site, excludeTabId);
+  if (!tab) return null;
+  await chrome.tabs.update(tab.id, { active: true }).catch(() => {});
+  await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  scheduleGuide(tab.id);
+  return tab;
+}
+
+// "Open Portal" (the step is on another site): reuse its open tab, else open its home page.
+async function openSite(site, fromTabId) {
+  if (!S.siteHome(site)) throw new Error(t("bad_url"));
+  if (await focusSiteTab(site, fromTabId)) return "focused";
+  await chrome.tabs.create({ url: S.siteHome(site), openerTabId: fromTabId });
+  return "opened";
 }
 
 async function refreshIfGuiding(tabId) {
@@ -382,6 +427,8 @@ const HANDLERS = {
     await chrome.tabs.update(sender.tab.id, { url: m.url });
     return true;
   },
+  // From the panel ({tabId}) or the widget (its own tab).
+  "tab:openSite": (m, sender) => openSite(m.site, m.tabId !== undefined ? m.tabId : sender.tab && sender.tab.id),
   "i18n:messages": (m) => I.loadMessages(m.code),
   "i18n:languages": () => I.listLanguages(),
 };

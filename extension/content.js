@@ -383,11 +383,14 @@
     current.raf = requestAnimationFrame(track);
   }
 
-  function showPointer(path, index, startedAt) {
+  // reuse: this step opens another Sejong site in a new tab and a tab of it is already open
+  // (background.js knows); a click then focuses that tab instead of opening another one.
+  function showPointer(path, index, startedAt, reuse) {
     const item = path[index];
     const hit = item && findElement(item);
     const el = hit && hit.visible ? hit.el : null;
     if (current && current.el === el && current.index === index && current.startedAt === startedAt) {
+      current.reuse = !!reuse;
       return; // already shown: don't scroll the page again on every refresh
     }
     clearPointer();
@@ -397,7 +400,7 @@
     frame.setAttribute("aria-hidden", "true");
     frame.dataset.step = `${index}/${path.length - 1}`;
     document.documentElement.append(frame);
-    current = { el, frame, index, startedAt, tick: 0, shown: true, key: "", raf: 0 };
+    current = { el, frame, index, startedAt, reuse: !!reuse, tick: 0, shown: true, key: "", raf: 0 };
     track();
   }
 
@@ -642,7 +645,12 @@
     if (recording) recordClick(event.target);
     // The user clicked the highlighted step: save the next step (before the page navigates away).
     if (current && event.target instanceof Node && current.el.contains(event.target)) {
-      chrome.runtime.sendMessage({ type: "guide:clicked", index: current.index, startedAt: current.startedAt })
+      if (current.reuse) {
+        // Do not open yet another tab of that site: background.js focuses the open one.
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      chrome.runtime.sendMessage({ type: "guide:clicked", index: current.index, startedAt: current.startedAt, reuse: current.reuse })
         .catch(() => {});
     }
     // After a click the menu may open or the page may change: look for the next step.
@@ -667,7 +675,7 @@
         break;
       case "guide:show":
         guiding = true;
-        showPointer(msg.path, msg.index, msg.startedAt);
+        showPointer(msg.path, msg.index, msg.startedAt, msg.reuse);
         sendResponse({ ok: true });
         break;
       case "widget:toggle": // toolbar icon in widget mode (top frame only)
@@ -706,7 +714,7 @@
     const { display } = await chrome.storage.local.get("display").catch(() => ({}));
     const wanted = display !== "panel";
     if (wanted && !widget) {
-      widget = globalThis.SejongWidget.create();
+      widget = globalThis.SejongWidget.create(SITE);
       if (current && current.shown && current.key && current.key !== "hidden") {
         const [left, top, width, height] = current.key.split("|").map(Number);
         widget.setTarget({ left, top, right: left + width, bottom: top + height });

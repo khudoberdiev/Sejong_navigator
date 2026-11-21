@@ -56,4 +56,17 @@ QUESTIONS = [
     ("ko", "교수님 평가하기", "sjpt.course_evaluation", "no exact shared words"),
     ("ko", "장학금 받으려면", "sjpt.scholarship_registration_student_support", "verb ending"),
     ("ko", "도서관 스터디룸 예약", "library.fac_studyroom", ""),
+    # ---------------------------------------------------------------- added 2026-11-21 (Problem M)
+    # Intent over labels: the real page, not a folder ("성적", "성적 및 강의평가"), not the
+    # Sejong Language Institute's "Grade", not an entry link (portal.library).
+    ("en", "grades", "sjpt.current_semester_grades", "folders and the Language Institute's 'Grade' compete"),
+    ("en", "my grades", "sjpt.current_semester_grades", ""),
+    ("uz", "baholarim", "sjpt.current_semester_grades", ""),
+    ("ko", "성적", "sjpt.current_semester_grades", "exact name of two folders"),
+    # Booking a reading-room seat: the link that opens the libseat booking system. The info
+    # page library.fs_seat (열람실 좌석배정 이용) should come second.
+    ("en", "seat reservation", "library.seat_status_more", "info page and portal.library compete"),
+    ("en", "book a seat", "library.seat_status_more", ""),
+    ("uz", "joy band qilish", "library.seat_status_more", "the seat map itself is on libseat (unreachable)"),
+    ("ko", "좌석 예약", "library.seat_status_more", "spacing differs from keywords"),
 ]

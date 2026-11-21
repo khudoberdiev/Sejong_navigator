@@ -34,7 +34,8 @@
     for (const [name, value] of Object.entries(props)) node.style.setProperty(name, value, "important");
   }
 
-  function create() {
+  // site: the Sejong site this page is on (content.js knows it from the host name).
+  function create(site) {
     const host = document.createElement(HOST_TAG);
     setImportant(host, {
       all: "initial", position: "fixed", "z-index": Z_INDEX, left: "0px", top: "0px",
@@ -74,6 +75,7 @@
       send,
       getState: () => send({ type: "ui:state" }),
       tabId: () => tabIdPromise,
+      site: async () => site || null,
       openUrl: (url) => send({ type: "tab:open", url }),
       onGuideStarted: () => setMode("compact"),
     };

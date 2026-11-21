@@ -59,6 +59,11 @@ function mountGuideUI() {
     send,
     getState: panelState,
     tabId: activeTabId,
+    // The active tab's Sejong site (host permissions let us read the URL of Sejong tabs only).
+    site: async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      return tab ? S.siteOfUrl(tab.url) : null;
+    },
     openUrl: async (url) => chrome.tabs.update(await activeTabId(), { url }),
   });
 }

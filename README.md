@@ -126,6 +126,11 @@ Use **–** / **+** in the widget header, or the toolbar icon (full ↔ mini).
 check the breadcrumbs (Korean + English), and press **Show me on this page** to outline the next menu item to click.
 Starting a guide from the widget switches it to the compact view.
 
+- **Ranking:** results prefer real pages over menu folders and over entry links into another site (`core/ranking.py`). The Sejong Language Institute's menus rank lower unless the query asks for them (e.g. "어학원", "language center"). Items inside an external system the extension cannot run in (libseat) count for the link that opens it. Results carry `kind` (`page`/`folder`/`entry`) and `entry_for`.
+- **Starts where you are:** on the library site, a guide to a library page starts on the library, not back at the portal. A result that is only the way into the site you're already on says "You are already in the Library" and offers the best page on this site.
+- **Steps on another site:** when a step is on another site, the status says so and offers **Open Portal** (etc.).
+- **Tabs are reused:** when a step would open another Sejong site in a new tab and a tab of that site is already open, that tab is used instead.
+
 **UI language:** all UI text is in `extension/_locales/<code>/messages.json` (English is complete and the default).
 - Settings → **UI language: Auto** follows Chrome's language. Choosing a language uses that file.
 - **Adding a language** = adding `_locales/<code>/messages.json` with a `language_name` entry. It appears in the list by itself.

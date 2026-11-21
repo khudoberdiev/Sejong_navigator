@@ -508,7 +508,7 @@ const GUIDE_ROUTE = [
 
 test("guideMessage: every status has English text with Korean + English menu names", () => {
   const g = Object.assign(S.newGuide(GUIDE_ROUTE, null, 1), { step: 2 });
-  const kinds = ["pending", "reload", "other-tab", "kor-only", "missing", "hint", "next", "here"];
+  const kinds = ["pending", "reload", "other-tab", "kor-only", "other-site", "missing", "hint", "next", "here"];
   for (const kind of kinds) {
     const index = kind === "here" ? 3 : kind === "hint" ? 1 : 2;
     const text = S.guideMessage(g, { kind, index }, T);
@@ -517,7 +517,7 @@ test("guideMessage: every status has English text with Korean + English menu nam
   }
   eq(S.guideMessage(g, { kind: "next", index: 2 }, T), "Step 2 of 3: click the highlighted “학부생학사정보 / *Student*Information Plaza”.");
   ok(S.guideMessage(g, { kind: "hint", index: 1 }, T).indexOf("It opens in a new tab") >= 0); // portal.sjpt opens a new tab
-  ok(S.guideMessage(g, { kind: "missing", index: 2 }, T).indexOf("Path: top tab first") >= 0);
+  ok(S.guideMessage(g, { kind: "missing", index: 2 }, T).indexOf("top tab first") < 0); // no internal notes
   ok(S.guideMessage(g, { kind: "kor-only", index: 2 }, T).indexOf("This menu only appears in Korean mode (KOR)") === 0);
   ok(S.guideMessage(g, { kind: "reload", index: 2 }, T).indexOf("Reload this page (Cmd+R) to start the guide.") === 0);
 });
@@ -598,6 +598,101 @@ test("placeWidget returns home after the highlight moves away (home is never cha
   ok(S.placeWidget(home, SIZE, rect(950, 650, 120, 30), VIEW).avoided);
   eq(S.placeWidget(home, SIZE, null, VIEW), { x: 892, y: 592, avoided: false });
   eq(home, { x: 892, y: 592 });
+});
+
+// ------------------------------------------------------------------ Problem M: sites in the guide
+
+// portal.root → … → 학술정보원 (portal.library, entry) → library home → … → 열람실 좌석배정 이용
+const LIB_ROUTE = [
+  { id: "portal.root", site: "portal", name_ko: "세종대학교 포털" },
+  { id: "portal.student_services", site: "portal", name_ko: "학생서비스", name_en_site: "Student Services",
+    mobile_path_note: "open hamburger ≡, tap '학생서비스' (a.depth_tit1, 2nd)", selector_desktop: null },
+  { id: "portal.other_services", site: "portal", name_ko: "기타 서비스" },
+  { id: "portal.library", site: "portal", name_ko: "학술정보원", kind: "entry", entry_for: "library", opens_new_tab: true },
+  { id: "library.home", site: "library", name_ko: "세종대학교 학술정보원" },
+  { id: "library.about_facilities", site: "library", name_ko: "시설 및 서비스이용" },
+  { id: "library.fs_seat", site: "library", name_ko: "열람실 좌석배정 이용", name_en_site: null },
+];
+
+test("trimRouteForSite: start at the first step on the current site (bug B)", () => {
+  const ids = (r) => r.map((s) => s.id);
+  eq(ids(S.trimRouteForSite(LIB_ROUTE, "library")),
+     ["portal.library", "library.home", "library.about_facilities", "library.fs_seat"]); // no portal detour
+  eq(S.trimRouteForSite(LIB_ROUTE, "portal"), LIB_ROUTE);    // starts here anyway
+  eq(S.trimRouteForSite(LIB_ROUTE, "sjpt"), LIB_ROUTE);      // never visits SJPT: the first step says where to go
+  eq(S.trimRouteForSite(LIB_ROUTE, null), LIB_ROUTE);
+  eq(S.trimRouteForSite([], "library"), []);
+  // a trimmed route is still a guide: its first step (route[1]) is on this site
+  const g = S.newGuide(S.trimRouteForSite(LIB_ROUTE, "library"), null, 1);
+  ok(S.isGuide(g) && g.route[g.step].site === "library");
+});
+
+test("entryOnSite: an entry link into the site you are already on (bug A)", () => {
+  ok(S.entryOnSite(LIB_ROUTE[3], "library"));
+  ok(!S.entryOnSite(LIB_ROUTE[3], "portal"));               // from the portal it IS the way in
+  ok(!S.entryOnSite(LIB_ROUTE[6], "library"));              // a normal page
+  ok(!S.entryOnSite(LIB_ROUTE[3], null));
+});
+
+test("guideStatus: a step on another site is 'other-site', not 'missing' (bug D, item 2)", () => {
+  const g = Object.assign(S.newGuide(LIB_ROUTE, null, 5), { step: 1 }); // next: 학생서비스 on the portal
+  const view = (site, shown) => ({ startedAt: 5, shown, sejong: true, site });
+  eq(S.guideStatus(g, view("library", -1)), { kind: "other-site", index: 1 });
+  eq(S.guideStatus(g, view("portal", -1)), { kind: "missing", index: 1 });       // right site, just not open yet
+  eq(S.guideStatus(g, view("portal", 1)), { kind: "next", index: 1 });
+  eq(S.guideStatus(g, view(undefined, -1)), { kind: "missing", index: 1 });      // views saved before site existed
+  const later = Object.assign({}, g, { step: 4 });                              // next: library home
+  eq(S.guideStatus(later, view("portal", 3)), { kind: "other-site", index: 4 }); // portal tab still shows 학술정보원
+  eq(S.guideStatus(later, view("library", 6)), { kind: "here", index: 6 });      // went ahead on the library site
+});
+
+test("status text never shows mobile_path_note, selectors or site codes (bug D)", () => {
+  const g = Object.assign(S.newGuide(LIB_ROUTE, null, 5), { step: 1 });
+  const other = S.guideMessage(g, { kind: "other-site", index: 1 }, T);
+  eq(other, "Step 1 of 6: this step (“학생서비스 / Student Services”) is on the Portal.");
+  for (const kind of ["other-site", "missing", "hint", "next", "pending", "other-tab"]) {
+    const text = S.guideMessage(g, { kind, index: 1 }, T);
+    for (const leak of ["hamburger", "a.depth_tit1", "mobile_path_note", "selector", "portal.", "≡"]) {
+      ok(text.indexOf(leak) < 0, `${kind} shows "${leak}": ${text}`);
+    }
+  }
+});
+
+test("siteName: plain names for buttons and sentences", () => {
+  eq([S.siteName("portal", T), S.siteName("portal", T, true)], ["Portal", "the Portal"]);
+  eq([S.siteName("library", T), S.siteName("library", T, true)], ["Library", "the Library"]);
+  eq(S.siteName("sjpt", T), "SJPT");
+  eq(T("open_site", [S.siteName("portal", T)]), "Open Portal");
+  eq(T("already_on_site", [S.siteName("library", T, true)]), "You are already in the Library.");
+});
+
+test("siteOfUrl / siteHome", () => {
+  eq(S.siteOfUrl("https://library.sejong.ac.kr/search?x=1"), "library");
+  eq(S.siteOfUrl("https://libseat.sejong.ac.kr/mobile/PA/roomStatus.php"), null);
+  eq(S.siteOfUrl(undefined), null);
+  eq(S.siteHome("portal"), "https://portal.sejong.ac.kr");
+  eq(S.siteHome("nope"), null);
+});
+
+test("newTabSite: which step opens another Sejong site in a new tab (bug C)", () => {
+  eq(S.newTabSite(LIB_ROUTE, 3), "library");                // 학술정보원 → library tab
+  eq(S.newTabSite(LIB_ROUTE, 2), null);                     // same site, same tab
+  eq(S.newTabSite(LIB_ROUTE, 6), null);                     // last step
+  eq(S.newTabSite(null, 0), null);
+});
+
+test("pickTabForSite: reuse the most recently used tab of that site, never the clicked one (bug C)", () => {
+  const tabs = [
+    { id: 1, url: "https://portal.sejong.ac.kr/main.do", lastAccessed: 50 },
+    { id: 2, url: "https://library.sejong.ac.kr/", lastAccessed: 10 },
+    { id: 3, url: "https://library.sejong.ac.kr/searchTotal", lastAccessed: 30 },
+    { id: 4, url: "https://libseat.sejong.ac.kr/x", lastAccessed: 99 },
+  ];
+  eq(S.pickTabForSite(tabs, "library", 1).id, 3);
+  eq(S.pickTabForSite(tabs, "library", 3).id, 2);
+  eq(S.pickTabForSite(tabs, "sjpt", 1), null);              // none open: the link opens a new tab as usual
+  eq(S.pickTabForSite(tabs, "portal", 1), null);            // only the tab the click came from
+  eq(S.pickTabForSite(null, "library", 1), null);
 });
 
 print("RESULT " + JSON.stringify({ passed, failures }));
