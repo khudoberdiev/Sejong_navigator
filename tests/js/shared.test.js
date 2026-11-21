@@ -383,6 +383,41 @@ test("boxIsShown: real size, clipped by overflow ancestors and the document edge
   ok(S.boxIsShown(box(10, 2000, 100, 20), [documentEdge]));                 // below the fold: scrollable, so visible
 });
 
+test("frameGeometry: element box + 4 px padding + 3 px border, nothing more", () => {
+  const link = { left: 100, top: 50, width: 120, height: 20 };
+  const g = S.frameGeometry(link);
+  eq([g.left, g.top, g.width, g.height], [93, 43, 134, 34]);
+  eq(S.frameGeometry(link, 0, 0), { left: 100, top: 50, width: 120, height: 20, glow: 0.35 });
+  eq([S.FRAME_PAD, S.FRAME_BORDER], [4, 3]);
+});
+
+test("frameGeometry: the inward glow never reaches the middle of a one-line link", () => {
+  for (const height of [14, 20, 28, 40, 60, 200]) {
+    const g = S.frameGeometry({ left: 0, top: 0, width: 300, height });
+    const inside = height + 2 * S.FRAME_PAD;
+    // widest glow layer (content.css): inset 0 0 18px*glow 8px*glow; it fades out by spread + blur/2
+    const reach = 8 * g.glow + 18 * g.glow / 2;
+    ok(g.glow >= 0.35 && g.glow <= 1, `glow ${g.glow}`);
+    ok(reach < inside / 2, `height ${height}: glow reaches ${reach}px of ${inside / 2}px`);
+  }
+  eq(S.frameGeometry({ left: 0, top: 0, width: 300, height: 200 }).glow, 1); // big box: the full glow
+});
+
+test("contentScriptMissing: only Sejong tabs where no frame answered", () => {
+  ok(S.contentScriptMissing("https://portal.sejong.ac.kr/main.do", 0));
+  ok(S.contentScriptMissing("https://sjpt.sejong.ac.kr/main/view/Login/doSsoLogin.do", 0));
+  ok(!S.contentScriptMissing("https://portal.sejong.ac.kr/main.do", 2));      // running
+  ok(!S.contentScriptMissing("https://www.google.com/", 0));                  // not ours
+  ok(!S.contentScriptMissing("chrome://extensions/", 0));
+  ok(!S.contentScriptMissing(undefined, 0));                                  // no access to the URL
+});
+
+test("guideStatus: a Sejong tab where injecting failed asks for a reload", () => {
+  const g = Object.assign(S.newGuide(ROUTE, null, 5), { step: 2 });
+  eq(S.guideStatus(g, { startedAt: 5, shown: -1, sejong: false, injectFailed: true }), { kind: "reload", index: 2 });
+  eq(S.guideStatus(g, { startedAt: 5, shown: -1, sejong: false, injectFailed: false }), { kind: "other-tab", index: 2 });
+});
+
 test("englishName prefers the site's own label, decoded", () => {
   eq(S.englishName({ name_en: "Academic Q&A", name_en_site: "Academic Affairs Q&#38;A" }), "Academic Affairs Q&A");
   eq(S.englishName({ name_en: "Classes", name_en_site: null }), "Classes");

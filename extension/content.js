@@ -11,8 +11,9 @@
 // GUIDE: reports which steps of the active route are in this frame, visible or hidden
 //   (by selector_desktop / selector_mobile, else by the exact Korean / English site label), and
 //   whether the page is in English or Korean mode. Highlights the step background.js picks with
-//   an outline + pointer. On every page load it asks background.js for the active guide (kept
-//   in chrome.storage.session), so the highlight comes back after navigation and in new tabs.
+//   an orange frame drawn as an overlay (no label on the page; the step text is in the panel).
+//   On every page load it asks background.js for the active guide (kept in
+//   chrome.storage.session), so the highlight comes back after navigation and in new tabs.
 //   A click on the highlighted element advances the guide to the next step.
 //   SJPT (WebSquare): the left menu is a collapsible tree in the main document (its "wframes"
 //   are not iframes). Its nodes are found by treenodevalue codes, the same in KOR and ENG mode.
@@ -26,13 +27,31 @@
 //   COMPUTER (Chrome's built-in Translator API, or a self-hosted LibreTranslate) and shows
 //   an overlay. Nothing is sent to a third-party service.
 (() => {
-  if (window.__sejongNavigator) return; // injected twice (about:blank frames)
-  window.__sejongNavigator = true;
+  // One live copy per frame. Injected twice (about:blank frames, or background.js injecting
+  // while the manifest's copy is running): the second one stops here. After the extension is
+  // reloaded, the copy in an already-open tab is orphaned (its chrome.runtime is gone) and
+  // background.js injects a fresh one: the fresh one takes over and stops the orphan.
+  const previous = window.__sejongNavigator;
+  if (previous && typeof previous.alive === "function" && previous.alive()) return;
+  if (previous && typeof previous.shutdown === "function") {
+    try { previous.shutdown(); } catch (e) { /* orphan already half gone */ }
+  }
+  let dead = false;
+  const instance = {
+    alive: () => { try { return !dead && !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; } },
+    shutdown: () => { dead = true; }, // replaced below, once everything it stops exists
+  };
+  window.__sejongNavigator = instance;
 
   const S = globalThis.SejongShared;
   const hostname = location.hostname || (self.origin && self.origin !== "null" ? new URL(self.origin).hostname : "");
   const SITE = S.siteForHost(hostname);
   if (!SITE) return;
+
+  // Leftovers in the page from an earlier copy: its highlight frame, and the old design's
+  // label bubble and the class it put on the site's element.
+  for (const old of document.querySelectorAll("sejong-nav-frame, #sejong-nav-pointer")) old.remove();
+  for (const old of document.querySelectorAll(".sejong-nav-highlight")) old.classList.remove("sejong-nav-highlight");
 
   const ITEM = "li, [role=treeitem], [role=menuitem]";
   const STRONG_CLICKABLE = "a, button, [role=menuitem], [role=treeitem], [role=tab], [role=link], [onclick]";
@@ -190,9 +209,9 @@
 
   // ---------------------------------------------------------------- guide
 
-  const HIGHLIGHT = "sejong-nav-highlight";
+  const FRAME_TAG = "sejong-nav-frame"; // the overlay (an unknown tag, so site CSS leaves it alone)
   let guiding = false;
-  let current = null; // {el, tip, index, startedAt}
+  let current = null; // {el, frame, index, startedAt}
 
   // Really visible to the user, judged on the element itself, not on its parent's state:
   //   * checkVisibility(): display:none anywhere up the tree, visibility:hidden, opacity:0,
@@ -275,7 +294,7 @@
     let hidden = null;
     for (const el of document.querySelectorAll("a, button, [role=menuitem], [role=treeitem], [role=tab], li, span, div, td")) {
       if (el.textContent.length > 200) continue; // a container, not a label: skip the subtree walk
-      if (el.closest("#sejong-nav-pointer") || !names.includes(S.labelKey(originalText(el)))) continue;
+      if (el.closest(FRAME_TAG) || !names.includes(S.labelKey(originalText(el)))) continue;
       if (!isVisible(el)) {
         hidden = hidden || el;
         continue;
@@ -318,66 +337,63 @@
     return { site: SITE, lang: pageLanguage(found), visible, hidden };
   }
 
+  // The highlight is an overlay: a fixed-position <sejong-nav-frame> drawn over the target's
+  // box (S.frameGeometry: the box + 4 px padding + the 3 px orange border). The site's own
+  // elements and styles are never touched, and nothing is drawn outside the frame, so
+  // neighbouring menu items stay uncovered. Look: content.css. The step text is only in the panel.
+  // A requestAnimationFrame loop keeps the frame on the element through scrolling, resizing,
+  // menus opening and other layout changes; it runs only while a frame is shown.
+  const VISIBILITY_EVERY = 15; // frames between isVisible() checks (it reads computed styles)
+
+  function setImportant(node, props) {
+    for (const [name, value] of Object.entries(props)) node.style.setProperty(name, value, "important");
+  }
+
   function clearPointer() {
     if (!current) return;
-    current.el.classList.remove(HIGHLIGHT);
-    current.tip.remove();
+    cancelAnimationFrame(current.raf);
+    current.frame.remove();
     current = null;
   }
 
-  // The label bubble sits above the element (below it if there is no room), with its arrow
-  // (CSS ::before/::after, see content.css) pointing at the middle of the element.
-  const TIP_GAP = 14; // arrow (8 px) + room for the highlight's glow
-  function place() {
+  function track() {
     if (!current) return;
-    const r = current.el.getBoundingClientRect();
-    const tip = current.tip;
-    const above = r.top - tip.offsetHeight - TIP_GAP;
-    const below = above < 4;
-    tip.dataset.side = below ? "below" : "above";
-    tip.style.top = `${below ? r.bottom + TIP_GAP : above}px`;
-    const left = Math.max(4, Math.min(r.left, innerWidth - tip.offsetWidth - 4));
-    tip.style.left = `${left}px`;
-    const arrow = Math.max(12, Math.min(r.left + r.width / 2 - left, tip.offsetWidth - 12));
-    tip.style.setProperty("--sejong-arrow-x", `${arrow}px`);
+    const { el, frame } = current;
+    if (!el.isConnected) { // the site rebuilt its menu: find the step again
+      clearPointer();
+      if (!dead) chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {});
+      return;
+    }
+    if (current.tick++ % VISIBILITY_EVERY === 0) current.shown = isVisible(el);
+    const g = S.frameGeometry(el.getBoundingClientRect());
+    const key = current.shown ? `${g.left}|${g.top}|${g.width}|${g.height}` : "hidden";
+    if (key !== current.key) { // write styles only when something moved
+      current.key = key;
+      setImportant(frame, current.shown ? {
+        display: "block", left: `${g.left}px`, top: `${g.top}px`, width: `${g.width}px`, height: `${g.height}px`,
+        "--sejong-glow": String(g.glow),
+      } : { display: "none" });
+    }
+    current.raf = requestAnimationFrame(track);
   }
 
-  // note: an extra line under the label, e.g. that the next menu exists only in Korean mode.
-  function showPointer(path, index, startedAt, note) {
+  function showPointer(path, index, startedAt) {
     const item = path[index];
     const hit = item && findElement(item);
     const el = hit && hit.visible ? hit.el : null;
-    if (current && current.el === el && current.index === index && current.startedAt === startedAt &&
-        current.note === (note || "")) {
-      place(); // already shown: don't scroll the page again on every refresh
-      return;
+    if (current && current.el === el && current.index === index && current.startedAt === startedAt) {
+      return; // already shown: don't scroll the page again on every refresh
     }
     clearPointer();
     if (!el) return;
-    el.classList.add(HIGHLIGHT);
     el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
-    const tip = document.createElement("div");
-    tip.id = "sejong-nav-pointer";
-    const last = index === path.length - 1;
-    const english = S.englishName(item);
-    const names = [S.cleanLabel(item.name_ko), english].filter((n, i, all) => n && all.indexOf(n) === i);
-    tip.textContent = `${last ? "✓" : "👉"} ${names.join(" / ")}`;
-    const step = document.createElement("small");
-    step.textContent = `  ${index}/${path.length - 1}${item.opens_new_tab ? " · opens a new tab" : ""}`;
-    tip.append(step);
-    if (note) {
-      const line = document.createElement("div");
-      line.className = "sejong-nav-note";
-      line.textContent = note;
-      tip.append(line);
-    }
-    document.documentElement.append(tip);
-    current = { el, tip, index, startedAt, note: note || "" };
-    place();
+    const frame = document.createElement(FRAME_TAG);
+    frame.setAttribute("aria-hidden", "true");
+    frame.dataset.step = `${index}/${path.length - 1}`;
+    document.documentElement.append(frame);
+    current = { el, frame, index, startedAt, tick: 0, shown: true, key: "", raf: 0 };
+    track();
   }
-
-  addEventListener("scroll", () => requestAnimationFrame(place), { capture: true, passive: true });
-  addEventListener("resize", () => requestAnimationFrame(place), { passive: true });
 
   // ---------------------------------------------------------------- keep English
 
@@ -417,7 +433,7 @@
       const label = S.cleanLabel(node.nodeValue);
       const english = label && labelMap.get(label);
       const parent = node.parentElement;
-      if (!english || !parent || parent.closest("script, style, textarea, #sejong-nav-pointer") || !parent.closest(MENU_LIKE)) continue;
+      if (!english || !parent || parent.closest(`script, style, textarea, ${FRAME_TAG}`) || !parent.closest(MENU_LIKE)) continue;
       if (!replaced.has(node)) replaced.set(node, node.nodeValue);
       node.nodeValue = node.nodeValue.replace(/\S[\s\S]*\S|\S/, english); // keep surrounding spaces
       if (!parent.hasAttribute("title")) {
@@ -463,7 +479,7 @@
   }
 
   function looksLikeModal(el) {
-    if (el.id === OVERLAY_ID || el.closest("#sejong-nav-pointer")) return false;
+    if (el.id === OVERLAY_ID || el.closest(FRAME_TAG)) return false;
     if (el.matches(MENU_CONTAINERS) || el.closest("nav, [role=navigation], [role=menu], [role=menubar]")) return false;
     if (!isVisible(el)) return false;
     const r = el.getBoundingClientRect();
@@ -613,6 +629,7 @@
   // ---------------------------------------------------------------- events
 
   document.addEventListener("click", (event) => {
+    if (dead) return; // an orphan from before an extension reload: a fresh copy took over
     if (recording) recordClick(event.target);
     // The user clicked the highlighted step: save the next step (before the page navigates away).
     if (current && event.target instanceof Node && current.el.contains(event.target)) {
@@ -641,7 +658,7 @@
         break;
       case "guide:show":
         guiding = true;
-        showPointer(msg.path, msg.index, msg.startedAt, msg.note);
+        showPointer(msg.path, msg.index, msg.startedAt);
         sendResponse({ ok: true });
         break;
       case "guide:clear":
@@ -655,6 +672,17 @@
     return false;
   });
 
-  // A new page (or frame) loaded, also a new tab opened by SSO: if a guide is active, continue it.
+  // Called by a fresh copy (injected after an extension reload) on this orphaned one: remove
+  // what it shows and stop what it watches.
+  instance.shutdown = () => {
+    dead = true;
+    guiding = false;
+    clearPointer();
+    englishObserver.disconnect();
+    popupObserver.disconnect();
+  };
+
+  // A new page (or frame) loaded, also a new tab opened by SSO, or background.js injected this
+  // copy into an open tab: if a guide is active, continue it.
   chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {});
 })();

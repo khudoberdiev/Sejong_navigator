@@ -97,8 +97,9 @@ async function scanTab(tabId) {
 // loads, this worker going to sleep, and SSO opening SJPT in a new tab. This worker is the
 // only writer; the side panel reads and watches these keys.
 //   activeGuide        { route, step, targetId, startedAt }       (S.newGuide)
-//   guideView:<tabId>  { startedAt, shown, step, sejong, korOnly, at }  what that tab highlights now
-//                      (korOnly: index of the next step if it exists only in Korean mode, else -1)
+//   guideView:<tabId>  { startedAt, shown, step, sejong, korOnly, injectFailed, at }  what that tab highlights now
+//                      (korOnly: index of the next step if it exists only in Korean mode, else -1;
+//                      injectFailed: a Sejong page where the content script could not be injected)
 //   guideLast          { outcome: "finished" | "stopped", targetId, name, at }
 const GUIDE = "activeGuide";
 const viewKey = (tabId) => `guideView:${tabId}`;
@@ -120,20 +121,54 @@ function updateGuide(change) {
 }
 const getGuide = () => updateGuide(() => undefined);
 
-async function runGuide(tabId) {
-  const guide = await getGuide();
-  if (!S.isGuide(guide)) return { active: false };
+// The content script is missing from a Sejong tab that was already open when the extension was
+// installed or reloaded: Chrome injects manifest content scripts only into pages loaded later.
+// Inject the same files now (all frames). Tried once per page load (injectTried, cleared when the
+// tab navigates), so a page that refuses it is not hammered. → true if the injection ran.
+const CONTENT_FILES = { css: ["content.css"], isolated: ["shared.js", "content.js"], main: ["page_hook.js"] };
+const injectTried = new Set();
+chrome.webNavigation.onCommitted.addListener(({ tabId, frameId }) => { if (frameId === 0) injectTried.delete(tabId); });
+
+async function injectContentScript(tabId) {
+  if (injectTried.has(tabId)) return false;
+  injectTried.add(tabId);
+  try {
+    const target = { tabId, allFrames: true };
+    await chrome.scripting.insertCSS({ target, files: CONTENT_FILES.css });
+    await chrome.scripting.executeScript({ target, files: CONTENT_FILES.main, world: "MAIN" });
+    await chrome.scripting.executeScript({ target, files: CONTENT_FILES.isolated });
+    return true;
+  } catch (e) {
+    return false; // e.g. an error page, or the tab is still loading
+  }
+}
+
+// Each frame answers {site, lang, visible, hidden}: steps on screen, and steps in the DOM but
+// hidden (inside a collapsed menu). Only visible steps can be highlighted, so a hidden step
+// shows its nearest visible parent step instead (pickStep takes the deepest visible one).
+async function probeTab(tabId, route) {
   const frames = await framesOf(tabId).catch(() => []);
-  // Each frame answers {site, lang, visible, hidden}: steps on screen, and steps in the DOM but
-  // hidden (inside a collapsed menu). Only visible steps can be highlighted, so a hidden step
-  // shows its nearest visible parent step instead (pickStep takes the deepest visible one).
   const probes = (await Promise.all(frames.map(async (f) => {
-    const answer = await sendToFrame(tabId, f.frameId, { type: "guide:probe", path: guide.route });
+    const answer = await sendToFrame(tabId, f.frameId, { type: "guide:probe", path: route });
     return answer ? {
       frameId: f.frameId, site: answer.site || null, lang: answer.lang || null,
       visible: answer.visible || [], hidden: answer.hidden || [],
     } : null;
   }))).filter(Boolean);
+  return { frames, probes };
+}
+
+async function runGuide(tabId) {
+  const guide = await getGuide();
+  if (!S.isGuide(guide)) return { active: false };
+  let { frames, probes } = await probeTab(tabId, guide.route);
+  let injectFailed = false;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (tab && S.contentScriptMissing(tab.url, probes.length)) {
+    const injected = await injectContentScript(tabId);
+    if (injected) ({ frames, probes } = await probeTab(tabId, guide.route));
+    injectFailed = probes.length === 0; // still nobody answers: the user must reload the page
+  }
   const pick = S.pickStep(guide, probes.flatMap((p) => p.visible));
   const target = pick.show >= 0 ? probes.find((p) => p.visible.includes(pick.show)) : null;
   // Save a forward jump, unless the guide was stopped or replaced while we were probing.
@@ -141,12 +176,12 @@ async function runGuide(tabId) {
     ? Object.assign({}, g, { step: pick.step }) : undefined));
   if (!now || now.startedAt !== guide.startedAt) return { active: false };
   const korOnly = S.korOnlyStep(now, probes, pick.show);
-  const note = korOnly >= 0 ? S.KOR_ONLY_NOTE : "";
   await Promise.all(frames.map((f) => sendToFrame(tabId, f.frameId, target && f.frameId === target.frameId
-    ? { type: "guide:show", path: guide.route, index: pick.show, startedAt: guide.startedAt, note }
+    ? { type: "guide:show", path: guide.route, index: pick.show, startedAt: guide.startedAt }
     : { type: "guide:clear", guiding: true })));
   const view = {
-    startedAt: guide.startedAt, shown: pick.show, step: now.step, sejong: probes.length > 0, korOnly, at: Date.now(),
+    startedAt: guide.startedAt, shown: pick.show, step: now.step, sejong: probes.length > 0, korOnly, injectFailed,
+    at: Date.now(),
   };
   await chrome.storage.session.set({ [viewKey(tabId)]: view });
   return Object.assign({ active: true, total: guide.route.length }, view);
@@ -217,7 +252,10 @@ async function refreshIfGuiding(tabId) {
 // Switching tabs, and top-level page loads (also non-Sejong pages, so the panel can say so).
 chrome.tabs.onActivated.addListener(({ tabId }) => refreshIfGuiding(tabId));
 chrome.webNavigation.onCompleted.addListener(({ tabId, frameId }) => { if (frameId === 0) refreshIfGuiding(tabId); });
-chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove(viewKey(tabId)));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  injectTried.delete(tabId);
+  chrome.storage.session.remove(viewKey(tabId));
+});
 
 // ------------------------------------------------------------------ 4. keep-English labels
 

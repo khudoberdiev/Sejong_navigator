@@ -6,6 +6,7 @@
 * manifest.json points at files that exist and covers the four sites
 """
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -107,3 +108,53 @@ def test_backend_url_lives_only_in_config():
         if js.name != "config.js":
             assert "127.0.0.1" not in text and "localhost" not in text, js.name
     assert 'BACKEND_URL: "http://127.0.0.1:8000"' in (EXT / "config.js").read_text(encoding="utf-8")
+
+
+def test_manifest_can_inject_the_content_script():
+    manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
+    assert "scripting" in manifest["permissions"]  # chrome.scripting.executeScript into already-open tabs
+
+
+def test_injected_files_match_the_manifest_content_scripts():
+    # background.js injects into tabs that were open before the extension (re)loaded: it must
+    # inject exactly what the manifest injects into new pages.
+    text = (EXT / "background.js").read_text(encoding="utf-8")
+    match = re.search(r"const CONTENT_FILES = (\{.*?\});", text)
+    assert match, "CONTENT_FILES not found in background.js"
+    files = json.loads(re.sub(r"(\w+):", r'"\1":', match.group(1)))
+    manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
+    main = next(s for s in manifest["content_scripts"] if s.get("world") == "MAIN")
+    isolated = next(s for s in manifest["content_scripts"] if s.get("world") != "MAIN")
+    assert files == {"css": isolated["css"], "isolated": isolated["js"], "main": main["js"]}
+
+
+def _css_rules(css):
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+
+
+def test_highlight_frame_draws_nothing_outside_itself():
+    css = (EXT / "content.css").read_text(encoding="utf-8")
+    assert css.startswith("/* AI-generated")
+    rules = [(sel.strip(), body) for sel, body in _css_rules(css)]
+    frame = [(sel, body) for sel, body in rules if "sejong-nav-frame" in sel]
+    assert frame, "no sejong-nav-frame rules"
+    for selector, body in frame:
+        for value in re.findall(r"box-shadow\s*:\s*([^;]+);", body):
+            # split the shadow list on commas outside parentheses (rgba(...), calc(...))
+            layers = re.split(r",(?![^(]*\))", value)
+            assert all(layer.strip().startswith("inset") for layer in layers), f"{selector}: outer shadow {layer!r}"
+        assert not re.search(r"\boutline-offset\s*:\s*[1-9]", body), f"{selector}: outline pushed outward"
+        assert not re.search(r"\boutline\s*:\s*([2-9]|\d{2,})px", body), f"{selector}: outline wider than 1px"
+    frame_rule = dict(frame)["sejong-nav-frame"]
+    assert "pointer-events: none !important" in frame_rule and "position: fixed !important" in frame_rule
+    assert "3px solid #d97757" in frame_rule.lower()
+    assert "prefers-reduced-motion" in css
+    # the old design is gone: no label bubble, no class on the site's own element
+    assert "sejong-nav-pointer" not in css and "sejong-nav-highlight" not in css
+
+
+def test_content_script_does_not_restyle_the_site():
+    text = (EXT / "content.js").read_text(encoding="utf-8")
+    assert "classList.add(HIGHLIGHT" not in text and 'tip.id = "sejong-nav-pointer"' not in text
+    assert 'createElement(FRAME_TAG)' in text

@@ -7,7 +7,7 @@
   "action": { "default_title": "Sejong Navigator" },
   "side_panel": { "default_path": "popup.html" },
   "background": { "service_worker": "background.js" },
-  "permissions": ["storage", "webNavigation", "sidePanel"],
+  "permissions": ["storage", "webNavigation", "sidePanel", "scripting"],
   "host_permissions": [
     "*://portal.sejong.ac.kr/*",
     "*://sjpt.sejong.ac.kr/*",

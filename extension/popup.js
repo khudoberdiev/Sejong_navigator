@@ -179,6 +179,9 @@ let panelWindowId = null;
 const nameOf = (item) => (item && (item.name_ko || S.englishName(item) || item.id)) || "";
 // "학사정보시스템 (SJPT) / Academic Information System (SJPT)": what the page shows in either mode.
 const bothNames = (item) => [nameOf(item), S.englishName(item)].filter((n, i, all) => n && all.indexOf(n) === i).join(" / ");
+// A Sejong tab where the extension could not start (it was opened before the extension was
+// reloaded, and injecting the content script failed).
+const RELOAD_TEXT = "Reload this page (Cmd+R) to start the guide.";
 const newTabHint = (item) => (item && item.opens_new_tab ? " It opens in a new tab; the guide continues there." : "");
 
 async function guideState() {
@@ -215,6 +218,7 @@ function guideText(guide, info) {
       const note = step && step.mobile_path_note ? ` Path: ${step.mobile_path_note}` : "";
       return `${of}: “${bothNames(step)}” is not visible on this page yet.${note}`;
     }
+    case "reload": return `${RELOAD_TEXT} (${of}: “${bothNames(step)}”.)`;
     case "other-tab": return `${of}: “${bothNames(step)}”. This tab is not a Sejong page; switch to the Sejong tab.`;
     default: return `${of}: “${bothNames(step)}”. Checking this tab…`;
   }

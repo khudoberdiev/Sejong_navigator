@@ -1,81 +1,50 @@
 /* AI-generated — to be rewritten by me */
 
-/* Guide colours. Orange, so the highlight never blends into the portal's red header.
-   --sejong-orange (#D97757) draws the outline and glow. The label bubble uses a deeper orange
-   (#B4532F), because white 13px text needs 4.5:1 contrast and #D97757 only gives about 3.1:1
-   (#B4532F gives about 5:1). A white ring around both keeps them apart from red AND white
-   backgrounds. */
-:root {
-  --sejong-orange: #d97757;
-  --sejong-orange-deep: #b4532f;
-  --sejong-glow: rgba(217, 119, 87, 0.55);
-  --sejong-glow-soft: rgba(217, 119, 87, 0.2);
+/* Guide highlight: an orange frame drawn as an overlay over the target element.
+   content.js creates one <sejong-nav-frame> and keeps its left/top/width/height (inline,
+   !important) on the element's box + 4 px padding + the 3 px border (S.frameGeometry).
+   Rules:
+     * nothing is drawn outside the frame: no outer shadow, no label. The only exception is the
+       1 px white line just outside the orange edge, so the frame shows on the portal's red
+       header (#D97757 on #C3002F is only 2.0:1; white on red is 6.3:1).
+     * the glow fades INWARD from the border; its size scales with the box (--sejong-glow,
+       0.35..1, from content.js), so the text in the middle stays readable.
+     * the site's own elements and styles are never changed.
+   "all: initial" first, so site CSS (div/span rules, resets) cannot change the frame. */
+sejong-nav-frame {
+  all: initial !important;
+  display: block !important;
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  box-sizing: border-box !important;
+  pointer-events: none !important;
+  border: 3px solid #d97757 !important;
+  border-radius: 6px !important;
+  outline: 1px solid rgba(255, 255, 255, 0.9) !important;
+  outline-offset: 0 !important;
+  --sejong-glow: 1;
 }
 
-/* Guide: the next menu item to click */
-.sejong-nav-highlight {
-  outline: 3px solid var(--sejong-orange) !important;
-  outline-offset: 3px !important;
-  border-radius: 4px;
-  /* white ring fills the gap between the element and the outline; then the glow.
-     Not !important: an animation cannot change an !important value, so it would never pulse. */
-  box-shadow: 0 0 0 3px #fff, 0 0 14px 6px var(--sejong-glow);
-  animation: sejong-nav-pulse 1.6s ease-in-out infinite;
+/* The inward glow, on its own layer so only the glow pulses: the border line stays 100%. */
+sejong-nav-frame::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: 3px !important;
+  box-shadow:
+    inset 0 0 0 2px rgba(217, 119, 87, 0.9),
+    inset 0 0 calc(10px * var(--sejong-glow)) calc(4px * var(--sejong-glow)) rgba(217, 119, 87, 0.5),
+    inset 0 0 calc(18px * var(--sejong-glow)) calc(8px * var(--sejong-glow)) rgba(217, 119, 87, 0.2) !important;
+  /* not !important: an animation cannot change an !important value */
+  animation: sejong-nav-glow 1.8s ease-in-out infinite;
 }
 
-@keyframes sejong-nav-pulse {
-  50% { box-shadow: 0 0 0 3px #fff, 0 0 6px 2px var(--sejong-glow-soft); }
+@keyframes sejong-nav-glow {
+  50% { opacity: 0.45; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sejong-nav-highlight { animation: none; }
-}
-
-#sejong-nav-pointer {
-  --sejong-arrow-x: 16px; /* set by content.js: where the arrow points */
-  position: fixed;
-  z-index: 2147483647;
-  max-width: 320px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--sejong-orange-deep);
-  color: #fff;
-  font: 600 13px/1.35 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
-  box-shadow: 0 0 0 2px #fff, 0 4px 14px rgba(0, 0, 0, 0.3);
-  pointer-events: none;
-}
-
-/* The arrow: a white triangle (the ring) under an orange one. Above the element it points down,
-   below the element it points up. */
-#sejong-nav-pointer::before,
-#sejong-nav-pointer::after {
-  content: "";
-  position: absolute;
-  left: var(--sejong-arrow-x);
-  width: 0;
-  height: 0;
-  border: solid transparent;
-  transform: translateX(-50%);
-}
-#sejong-nav-pointer::before { border-width: 10px; }
-#sejong-nav-pointer::after { border-width: 8px; }
-
-#sejong-nav-pointer[data-side="above"]::before { top: 100%; border-top-color: #fff; }
-#sejong-nav-pointer[data-side="above"]::after { top: 100%; border-top-color: var(--sejong-orange-deep); }
-#sejong-nav-pointer[data-side="below"]::before { bottom: 100%; border-bottom-color: #fff; }
-#sejong-nav-pointer[data-side="below"]::after { bottom: 100%; border-bottom-color: var(--sejong-orange-deep); }
-
-#sejong-nav-pointer small {
-  opacity: 0.9;
-  font-weight: 400;
-}
-
-/* e.g. "This menu only appears in Korean mode (KOR)" */
-#sejong-nav-pointer .sejong-nav-note {
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.5);
-  font-weight: 400;
+  sejong-nav-frame::before { animation: none; }
 }
 
 /* Recorder: short flash on the clicked element */

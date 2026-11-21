@@ -319,6 +319,33 @@
     return true;
   }
 
+  // The highlight frame (content.js draws it as an overlay, content.css styles it) around the
+  // target's box, in viewport px: the box grown by `pad` (room between text and frame) plus the
+  // `border` width on every side. Nothing is drawn outside this rectangle.
+  // glow: scale of the inward glow, 0.35..1. Full size (10 px / 18 px blur) when the inside is
+  // at least 60 px on its short side; smaller for a one-line menu link, so the glow from the
+  // top and bottom edges never reaches the text in the middle.
+  const FRAME_PAD = 4;
+  const FRAME_BORDER = 3;
+  function frameGeometry(rect, pad, border) {
+    const p = pad === undefined ? FRAME_PAD : pad;
+    const b = border === undefined ? FRAME_BORDER : border;
+    const inside = Math.min(rect.width, rect.height) + 2 * p;
+    const glow = Math.max(0.35, Math.min(1, inside / 60));
+    return {
+      left: rect.left - p - b, top: rect.top - p - b,
+      width: rect.width + 2 * (p + b), height: rect.height + 2 * (p + b),
+      glow: Math.round(glow * 100) / 100,
+    };
+  }
+
+  // A tab whose URL is a Sejong site but where no frame answered: the content script is not
+  // running there (the extension was reloaded after the page loaded). background.js injects it.
+  function contentScriptMissing(url, framesAnswered) {
+    const m = /^https?:\/\/([^/?#:]+)/i.exec(String(url || "")); // no URL(): keeps this runnable in JSC
+    return !!m && !!siteForHost(m[1]) && !framesAnswered;
+  }
+
   // English label for breadcrumbs and the pointer: the site's own English label if it has one.
   function englishName(item) {
     return cleanLabel(decodeEntities((item && (item.name_en_site || item.name_en)) || ""));
@@ -456,10 +483,12 @@
   }
 
   // What the side panel says for one tab. view = that tab's "guideView:<tabId>" or null.
-  //   → { kind, index }  kind: pending | other-tab | kor-only | missing | hint | next | here
+  //   → { kind, index }  kind: pending | reload | other-tab | kor-only | missing | hint | next | here
+  //   reload: a Sejong page where the content script could not be injected (view.injectFailed)
   function guideStatus(guide, view) {
     const last = guide.route.length - 1;
     if (!view || view.startedAt !== guide.startedAt) return { kind: "pending", index: guide.step };
+    if (view.injectFailed) return { kind: "reload", index: guide.step };
     if (!view.sejong) return { kind: "other-tab", index: guide.step };
     if (Number.isInteger(view.korOnly) && view.korOnly >= 0) return { kind: "kor-only", index: view.korOnly };
     if (view.shown < 0) return { kind: "missing", index: guide.step };
@@ -473,6 +502,7 @@
     stableId, newStore, applyClick, applyScan, undo, deleteItem, displayName, listForReview,
     toMenuMap, mergeMenuMap,
     decodeEntities, labelKey, siteNames, selectorsFor, labelMatches, pickCandidate, boxIsShown, englishName,
+    FRAME_PAD, FRAME_BORDER, frameGeometry, contentScriptMissing,
     newGuide, isGuide, pickStep, advanceGuide, KOR_ONLY_NOTE, korOnlyStep, guideStatus,
   });
 })(globalThis);
