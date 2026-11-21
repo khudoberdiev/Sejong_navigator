@@ -25,7 +25,7 @@
   },
   "close": {
     "message": "Close",
-    "description": "Close button of the translation overlay (tooltip)."
+    "description": "Close button: the translation overlay, and the widget's × (tooltip)."
   },
   "no_answer": {
     "message": "No answer from the extension.",
@@ -157,7 +157,7 @@
     }
   },
   "status_missing": {
-    "message": "$step_of$: “$name$” is not visible on this page yet.",
+    "message": "$step_of$: Can't find “$name$” on this page.",
     "placeholders": {
       "step_of": {
         "content": "$1"
@@ -621,5 +621,13 @@
   "arrow_down": {
     "message": "The next step is below. Click to scroll to it.",
     "description": "Tooltip of the orange arrow at the bottom edge of the page."
+  },
+  "scroll_down": {
+    "message": "Scroll down",
+    "description": "Label above the orange arrow at the bottom edge (the next step is below)."
+  },
+  "scroll_up": {
+    "message": "Scroll up",
+    "description": "Label below the orange arrow at the top edge (the next step is above)."
   }
 }

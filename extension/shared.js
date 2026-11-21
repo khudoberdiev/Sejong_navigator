@@ -319,6 +319,74 @@
     return true;
   }
 
+  // FOUND (on the page, maybe off screen: scroll to it) or HIDDEN (not there for the student)?
+  // content.js reads the styles and boxes; this decides. Off screen is never hidden: above or
+  // below the window, or scrolled away inside a scrolling box, is found (the ↑/↓ arrow).
+  // Hidden only when: display:none, visibility not visible, smaller than 1×1 px, cut away by an
+  // ancestor that CLIPS (overflow hidden/clip, or a scrolling box that is itself 0 px: a closed
+  // dropdown), pushed off the top/left of the document (left:-9999px menus), or fully
+  // transparent (opacity 0 on it or an ancestor) WHILE ON SCREEN. Off screen, opacity 0 is
+  // "found": scroll-reveal sections ("fade in when scrolled to") are transparent until then.
+  //   target:    {display, visibility, opacity, position, rect, checkVisible}
+  //              (opacity: the product along the ancestor chain; checkVisible:
+  //              Element.checkVisibility({checkVisibilityCSS}) result, or undefined)
+  //   ancestors: parent first, up to (not incl.) <html>:
+  //              [{overflowX, overflowY, position, transform, rect, clientWidth, clientHeight, body}]
+  //   root:      <html>'s {overflowX, overflowY}; scroll: {x, y} of the window
+  //   viewport:  {width, height} of the window (for the opacity rule)
+  //   → { shown, scrollers: [indices into ancestors that the student can scroll],
+  //       reason: why hidden ("display" | "visibility" | "opacity" | "size" | "offpage" |
+  //               "clip:<ancestor index>"), or null }
+  // CSS rules followed: position:absolute escapes clipping ancestors below its containing block,
+  // position:fixed escapes all; the body's overflow belongs to the WINDOW when <html>'s is
+  // visible (so "body { overflow-x: hidden }" never hides what is below the first screen).
+  function judgeVisibility(target, ancestors, root, scroll, viewport) {
+    const scrollers = [];
+    const hidden = (reason) => ({ shown: false, scrollers, reason });
+    if (!target || target.display === "none") return hidden("display");
+    if (target.checkVisible === false) return hidden("display"); // display:none or visibility on an ancestor
+    if (target.visibility !== "visible") return hidden("visibility");
+    if (!target.rect || !(target.rect.width >= 1) || !(target.rect.height >= 1)) return hidden("size");
+    if (parseFloat(target.opacity) === 0) {
+      const vp = viewport || { width: Infinity, height: Infinity };
+      const r = target.rect;
+      const onScreen = r.right > 0 && r.bottom > 0 && r.left < vp.width && r.top < vp.height;
+      if (onScreen) return hidden("opacity");
+    }
+    const sc = scroll || { x: 0, y: 0 };
+    const clips = [{ left: -sc.x, top: -sc.y, right: Infinity, bottom: Infinity, reason: "offpage" }];
+    const rootVisible = !root || (root.overflowX === "visible" && root.overflowY === "visible");
+    const axis = (overflow, client) => overflow === "visible" ? "none"
+      : /^(auto|scroll)$/.test(overflow) && client >= 1 ? "scroll" : "clip";
+    let position = target.position;
+    (ancestors || []).forEach((a, i) => {
+      if (position === "fixed") return;
+      const containsAbsolute = a.position !== "static" || (a.transform && a.transform !== "none");
+      if (position === "absolute" && !containsAbsolute) return;
+      if (!(a.body && rootVisible)) {
+        const x = axis(a.overflowX, a.clientWidth);
+        const y = axis(a.overflowY, a.clientHeight);
+        if (x === "scroll" || y === "scroll") scrollers.push(i);
+        if (x === "clip" || y === "clip") {
+          clips.push({
+            left: x === "clip" ? a.rect.left : -Infinity, right: x === "clip" ? a.rect.right : Infinity,
+            top: y === "clip" ? a.rect.top : -Infinity, bottom: y === "clip" ? a.rect.bottom : Infinity,
+            reason: "clip:" + i,
+          });
+        }
+      }
+      position = a.position; // this box is now what the next ancestors must contain
+    });
+    // the first clip that leaves less than 1×1 px is the reason
+    let { left, top, right, bottom } = target.rect;
+    for (const c of clips) {
+      left = Math.max(left, c.left); top = Math.max(top, c.top);
+      right = Math.min(right, c.right); bottom = Math.min(bottom, c.bottom);
+      if (right - left < 1 || bottom - top < 1) return hidden(c.reason);
+    }
+    return { shown: true, scrollers, reason: null };
+  }
+
   // The highlight frame (content.js draws it as an overlay, content.css styles it) around the
   // target's box, in viewport px: the box grown by `pad` (room between text and frame) plus the
   // `border` width on every side. Nothing is drawn outside this rectangle.
@@ -604,6 +672,41 @@
     return { step: Math.max(guide.step, done + 1), finished: false, done };
   }
 
+  // Context steps: the element is on the page but is not something to click (a section heading
+  // like 좌석 현황, a sub-heading in a mega menu like 기타 서비스); content.js decides from the
+  // DOM. The guide never waits for a click there: from `step`, move past them to the next step
+  // that can be clicked. The last step (the target itself) is never skipped.
+  //   context: step indices known to be context steps → the step to wait for
+  function skipContextSteps(step, last, context) {
+    const set = context || [];
+    let s = step;
+    while (s < last && set.indexOf(s) >= 0) s++;
+    return s;
+  }
+
+  // Merge newly seen context indices into the guide's list (sorted, unique, valid).
+  function mergeContext(known, seen, last) {
+    const all = (known || []).concat(seen || []).filter((i) => Number.isInteger(i) && i >= 1 && i < last);
+    return all.filter((i, n) => all.indexOf(i) === n).sort((a, b) => a - b);
+  }
+
+  // What background.js does with the frames' answers on one tab (pure, so the whole flow can be
+  // tested). probes: [{visible, hidden, here, context}] per frame; pageHere: stepsOnPage(tab url).
+  //   → { finished } when the target page itself is open, else
+  //     { finished: false, done, context, step, pick: {show, step} }  (pickStep's answer)
+  // Done steps (this page) and context steps (headings) are never highlighted.
+  function planGuide(guide, pageHere, probes) {
+    const flat = (key) => (probes || []).reduce((all, p) => all.concat(p[key] || []), []);
+    const last = guide.route.length - 1;
+    const skip = skipDoneSteps(guide, (pageHere || []).concat(flat("here")));
+    if (skip.finished) return { finished: true };
+    const context = mergeContext(guide.context, flat("context"), last);
+    const step = skipContextSteps(skip.step, last, context);
+    const visible = flat("visible").filter((i) => i > skip.done && context.indexOf(i) < 0);
+    const pick = pickStep(Object.assign({}, guide, { step }), visible);
+    return { finished: false, done: skip.done, context, step, pick };
+  }
+
   // ------------------------------------------------------------------ off-screen target
 
   // The target is outside the part of the page the student sees (above or below the window,
@@ -612,7 +715,9 @@
   //   rect: the target's highlight-frame box; view: the visible area (the window, cut down to
   //   the scrolling boxes around the target), both in viewport px; size: the arrow's {width, height}.
   //   → null when the target is in view (the frame shows), else {dir: "up"|"down", x, y}
-  const ARROW_MARGIN = 8;
+  const ARROW_SIZE = { width: 56, height: 56 }; // = sejong-nav-arrow in content.css
+  const ARROW_MARGIN = 14; // from the edge: room for the 10 px bounce towards it
+  const ARROW_LABEL = 22;  // the "Scroll down" / "Scroll up" label: above ↓, below ↑
   const MIN_SHOWN = 16; // px of the target that must be visible to count as "in view"
   function offscreenArrow(rect, view, size, margin) {
     const m = margin === undefined ? ARROW_MARGIN : margin;
@@ -625,6 +730,15 @@
     const x = Math.round(Math.min(Math.max(center - size.width / 2, minX), maxX));
     const y = Math.round(dir === "up" ? view.top + m : Math.max(view.top + m, view.bottom - size.height - m));
     return { dir, x, y };
+  }
+
+  // The arrow's whole box (arrow + its label + the bounce), for the widget to keep clear of.
+  //   off: offscreenArrow's answer; size: the arrow's {width, height}
+  function arrowBox(off, size) {
+    const s = size || ARROW_SIZE;
+    const box = { left: off.x, top: off.y, right: off.x + s.width, bottom: off.y + s.height };
+    if (off.dir === "down") box.top -= ARROW_LABEL; else box.bottom += ARROW_LABEL;
+    return box;
   }
 
   // The visible area: the window cut down to each box (the scrolling ancestors' rects). If
@@ -763,17 +877,19 @@
   }
 
   // The breadcrumbs: one row per route step. state: "current" (the step to click now, orange),
+  // "context" (greyed: a heading the guide passes without a click, see skipContextSteps),
   // "done" (struck through) or "".
-  function crumbsModel(route, highlightIndex, doneBefore) {
+  function crumbsModel(route, highlightIndex, doneBefore, context) {
     const current = highlightIndex === undefined ? -1 : highlightIndex;
     const done = doneBefore || 0;
+    const ctx = context || [];
     return (route || []).map((item, i) => {
       const english = englishName(item);
       return {
         id: item.id,
         ko: item.name_ko || english || item.id,
         en: item.name_ko && english ? english : "",
-        state: i === current ? "current" : i > 0 && i < done ? "done" : "",
+        state: i === current ? "current" : i > 0 && ctx.indexOf(i) >= 0 ? "context" : i > 0 && i < done ? "done" : "",
       };
     });
   }
@@ -837,6 +953,23 @@
     return now;
   }
 
+  // Closed with ×: hidden on every Sejong tab (chrome.storage.local "widgetHidden") until the
+  // toolbar icon is clicked. Display "panel": never (the side panel is the UI then).
+  function widgetWanted(display, hidden) {
+    return display !== "panel" && !hidden;
+  }
+
+  // What the toolbar icon does in widget mode (background.js; in panel mode Chrome opens the
+  // panel itself). → a list of: "panel" (not a Sejong tab: open the side panel), "show" (the
+  // widget was closed with ×: show it again on every Sejong tab, in the FULL view), "toggle"
+  // (full ↔ mini on this tab).
+  function toolbarAction(onSejongTab, hidden) {
+    const actions = onSejongTab ? [] : ["panel"];
+    if (hidden) actions.push("show");
+    else if (onSejongTab) actions.push("toggle");
+    return actions;
+  }
+
   const WIDGET_MARGIN = 8;
 
   // Keep the widget (top-left pos, size) fully inside the viewport, `margin` px from the edges.
@@ -891,10 +1024,11 @@
     toMenuMap, mergeMenuMap,
     decodeEntities, labelKey, siteNames, selectorsFor, labelMatches, pickCandidate, boxIsShown, englishName,
     pickEnglish, replaceLabelText,
-    pageKey, samePage, isRealLink, stepsOnPage, skipDoneSteps,
-    ARROW_MARGIN, MIN_SHOWN, offscreenArrow, visibleArea, nodeIsWholeLabel,
+    pageKey, samePage, isRealLink, stepsOnPage, skipDoneSteps, skipContextSteps, mergeContext,
+    ARROW_SIZE, ARROW_MARGIN, ARROW_LABEL, MIN_SHOWN, offscreenArrow, arrowBox, visibleArea, nodeIsWholeLabel,
+    widgetWanted, toolbarAction,
     answerTokens, triggerMatches, answerFor, doneHint, finishedMessage,
-    FRAME_PAD, FRAME_BORDER, frameGeometry, contentScriptMissing,
+    FRAME_PAD, FRAME_BORDER, frameGeometry, contentScriptMissing, judgeVisibility, planGuide,
     newGuide, isGuide, pickStep, advanceGuide, korOnlyStep, guideStatus,
     formatMessage, makeTranslator, nameOf, bothNames, crumbsModel, guideMessage, idleMessage,
     siteName, siteHome, siteOfUrl, trimRouteForSite, entryOnSite, newTabSite, pickTabForSite,

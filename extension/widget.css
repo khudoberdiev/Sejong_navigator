@@ -3,6 +3,7 @@
    The host element itself is positioned by widget.js (inline, !important). */
 :host { all: initial; }
 .sn-widget {
+  position: relative;
   font: 13px/1.4 system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   color: var(--fg);
 }
@@ -39,6 +40,19 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
   cursor: grab; touch-action: none;
 }
+
+/* × on the pill: only while the pointer is over the mini widget (or the × has focus) */
+.sn-pill-close {
+  position: absolute; top: -8px; right: -8px;
+  width: 18px; height: 18px; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: var(--bg); color: var(--fg);
+  font: 600 12px/16px system-ui, sans-serif;
+  cursor: pointer; opacity: 0; pointer-events: none;
+}
+.sn-widget[data-mode="mini"]:hover .sn-pill-close,
+.sn-widget[data-mode="mini"] .sn-pill-close:focus-visible { opacity: 1; pointer-events: auto; }
+.sn-widget:not([data-mode="mini"]) .sn-pill-close { display: none; }
 
 /* the three views */
 .sn-widget[data-mode="mini"] .sn-card { display: none; }

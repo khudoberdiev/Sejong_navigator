@@ -47,54 +47,18 @@ sejong-nav-frame::before {
   sejong-nav-frame::before { animation: none; }
 }
 
-/* Off-screen pointer: the target is above or below what the student sees (the window, or a
-   scrolling box such as the SJPT menu tree). content.js puts one <sejong-nav-arrow> at that
-   edge, at the target's x (S.offscreenArrow), and hides it as soon as the target is in view;
-   then the frame shows. Same orange border and inward glow as the frame, a gentle bounce
-   towards the target, ↑ or ↓. The ONLY guide element that takes clicks (it scrolls to the
-   target); the page around it is never blocked. 44 px = ARROW_SIZE in content.js. */
+/* Off-screen pointer: the host of the arrow (content.js), which is drawn inside its own closed
+   Shadow DOM (arrow.css: look, bounce, glow, label). Here only what places it: fixed, on top,
+   56 px (= ARROW_SIZE in shared.js). The only guide element that takes clicks; display is set
+   inline by content.js. No animation here: "all: initial !important" would cancel it. */
 sejong-nav-arrow {
   all: initial !important;
   position: fixed !important;
   z-index: 2147483647 !important;
   box-sizing: border-box !important;
-  width: 44px !important;
-  height: 44px !important;
+  width: 56px !important;
+  height: 56px !important;
   pointer-events: auto !important;
-  cursor: pointer !important;
-  border: 3px solid #d97757 !important;
-  border-radius: 10px !important;
-  outline: 1px solid rgba(255, 255, 255, 0.9) !important;
-  outline-offset: 0 !important;
-  background: rgba(255, 255, 255, 0.94) !important;
-  color: #a94f30 !important; /* the glyph: a darker shade of the orange, 5:1 on white */
-  font: 700 24px/38px system-ui, -apple-system, sans-serif !important;
-  text-align: center !important;
-  user-select: none !important;
-  --sejong-bounce: 4px;
-  /* not !important: an animation cannot change an !important value */
-  animation: sejong-nav-bounce 1.2s ease-in-out infinite;
-}
-sejong-nav-arrow[data-dir="up"] { --sejong-bounce: -4px; }
-sejong-nav-arrow::before {
-  content: "" !important;
-  position: absolute !important;
-  inset: 0 !important;
-  border-radius: 7px !important;
-  pointer-events: none !important;
-  box-shadow:
-    inset 0 0 0 2px rgba(217, 119, 87, 0.9),
-    inset 0 0 6px 2px rgba(217, 119, 87, 0.5),
-    inset 0 0 12px 5px rgba(217, 119, 87, 0.2) !important;
-}
-sejong-nav-arrow:focus-visible { outline: 2px solid #a94f30 !important; outline-offset: 2px !important; }
-
-@keyframes sejong-nav-bounce {
-  50% { transform: translateY(var(--sejong-bounce)); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  sejong-nav-arrow { animation: none; }
 }
 
 /* Recorder: short flash on the clicked element */

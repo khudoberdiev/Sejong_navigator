@@ -54,6 +54,7 @@
       "js": [
         "config.js",
         "shared.js",
+        "context.js",
         "i18n.js",
         "ui.js",
         "widget.js",

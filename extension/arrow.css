@@ -1,0 +1,70 @@
+/* AI-generated — to be rewritten by me */
+/* The off-screen pointer (content.js), inside its closed Shadow DOM: the site's CSS cannot
+   reach in. The host <sejong-nav-arrow> is only positioned (content.css + inline styles).
+   Same orange border and inward glow as the highlight frame; a 10 px bounce TOWARDS the target
+   (down for ↓, up for ↑), 1 s, with the glow pulsing in step. Label: "Scroll down" above ↓,
+   "Scroll up" below ↑ (always on the screen side). Reduced motion: no bounce, steady glow. */
+:host { all: initial; }
+.arrow {
+  --bounce: 10px;
+  position: relative;
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #d97757;
+  border-radius: 14px;
+  outline: 1px solid rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
+  color: #a94f30; /* a darker shade of the orange for the arrow itself: 5:1 on white */
+  cursor: pointer;
+  animation: sejong-bounce 1s ease-in-out infinite;
+}
+:host([data-dir="up"]) .arrow { --bounce: -10px; }
+/* the inward glow, as on the frame: nothing is drawn outside the border */
+.arrow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 11px;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 2px rgba(217, 119, 87, 0.9),
+    inset 0 0 8px 3px rgba(217, 119, 87, 0.5),
+    inset 0 0 16px 6px rgba(217, 119, 87, 0.25);
+  animation: sejong-glow 1s ease-in-out infinite;
+}
+svg { display: block; width: 28px; height: 28px; }
+:host([data-dir="up"]) svg { transform: rotate(180deg); }
+path { fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 1px 7px;
+  border: 1px solid #d97757;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #a94f30;
+  font: 600 12px/16px system-ui, -apple-system, sans-serif;
+}
+:host([data-dir="down"]) .label { bottom: calc(100% + 4px); }
+:host([data-dir="up"]) .label { top: calc(100% + 4px); }
+:host(:focus-visible) .arrow { outline: 2px solid #a94f30; outline-offset: 2px; }
+
+@keyframes sejong-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(var(--bounce)); }
+}
+@keyframes sejong-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrow { animation: none; }           /* no bounce */
+  .arrow::before { animation: none; }   /* the glow stays, steady */
+}

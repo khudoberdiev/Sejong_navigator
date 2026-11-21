@@ -83,6 +83,7 @@ button.danger { color: var(--accent); }
 .crumbs li.current .crumb { color: var(--guide); font-weight: 600; }
 .crumbs li.current .crumb .en { color: var(--guide); }
 .crumbs li.done .crumb { color: var(--muted); text-decoration: line-through; }
+.crumbs li.context .crumb { color: var(--muted); opacity: 0.7; } /* a heading: passed without a click */
 .crumbs.small { font-size: 12px; min-height: 18px; }
 
 .settings { margin-top: 12px; }

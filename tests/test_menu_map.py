@@ -276,3 +276,9 @@ def test_booking_items_are_leaves_under_library_home_opening_libseat():
         assert not any(i.parent_id == item_id for i in items.values()), f"{item_id} is not a leaf"
         assert "(" not in item.label_en
     assert not any(i.startswith("library.home_reserve_") for i in items)  # renamed, not duplicated
+
+
+def test_seat_status_more_selector_is_the_seat_box_link():
+    # Chrome agent, 2026-11-21: 1 match; a bare a.more also matches 3 links in the book tabs
+    item = load_menu_items()["library.seat_status_more"]
+    assert item.selector_desktop == item.selector_mobile == 'li.usingTimeCon .seatHeader > a.more[href*="libseat.sejong.ac.kr"]'

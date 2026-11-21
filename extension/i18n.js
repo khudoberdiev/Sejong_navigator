@@ -22,6 +22,7 @@
     "sl", "sr", "sv", "sw", "ta", "te", "tg", "th", "tk", "tr", "uk", "uz", "vi", "zh_CN", "zh_TW",
   ];
 
+  const C = root.SejongContext; // context.js: chrome.* calls that survive an extension reload
   const chromeT = (key, subs) => {
     let text = "";
     try { text = chrome.i18n.getMessage(key, subs === undefined ? undefined : [].concat(subs).map(String)); } catch (e) { /* no i18n here */ }
@@ -38,11 +39,11 @@
   async function loadMessages(code) {
     if (CANDIDATE_LOCALES.indexOf(code) < 0) return null;
     if (!isExtensionPage) {
-      const answer = await chrome.runtime.sendMessage({ type: "i18n:messages", code }).catch(() => null);
+      const answer = await C.send({ type: "i18n:messages", code });
       return answer && answer.ok ? answer.data : null;
     }
     try {
-      const res = await fetch(chrome.runtime.getURL(`_locales/${code}/messages.json`));
+      const res = await fetch(C.getURL(`_locales/${code}/messages.json`));
       return res.ok ? await res.json() : null;
     } catch (e) {
       return null;
@@ -53,7 +54,7 @@
   let languagesCache = null;
   async function listLanguages() {
     if (!isExtensionPage) {
-      const answer = await chrome.runtime.sendMessage({ type: "i18n:languages" }).catch(() => null);
+      const answer = await C.send({ type: "i18n:languages" });
       return answer && answer.ok ? answer.data : [];
     }
     if (!languagesCache) {
@@ -73,7 +74,7 @@
   }
 
   async function init() {
-    const { uiLanguage = "auto" } = await chrome.storage.local.get("uiLanguage").catch(() => ({}));
+    const { uiLanguage = "auto" } = await C.storageGet("uiLanguage");
     await use(uiLanguage);
   }
 
@@ -88,13 +89,11 @@
 
   // Run cb after the UI language changed (in any tab or the panel) and the new text is loaded.
   function onChange(cb) { listeners.push(cb); }
-  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
-    chrome.storage.onChanged.addListener(async (changes, area) => {
-      if (area !== "local" || !changes.uiLanguage) return;
-      await use(changes.uiLanguage.newValue);
-      for (const cb of listeners) { try { cb(); } catch (e) { /* one bad listener must not stop the rest */ } }
-    });
-  }
+  C.onStorageChanged(async (changes, area) => {
+    if (area !== "local" || !changes.uiLanguage) return;
+    await use(changes.uiLanguage.newValue);
+    for (const cb of listeners) { try { cb(); } catch (e) { /* one bad listener must not stop the rest */ } }
+  });
 
   root.SejongI18n = Object.freeze({
     t: (key, subs) => translate(key, subs),

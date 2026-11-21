@@ -741,7 +741,7 @@ test("stepsOnPage + skipDoneSteps: the logo step is done on the library home pag
 
 // 2. Off-screen pointer
 const WIN = { left: 0, top: 0, right: 1000, bottom: 800 };
-const ARROW = { width: 44, height: 44 };
+const ARROW = S.ARROW_SIZE; // 56 × 56, 14 px from the edge
 test("offscreenArrow: hidden while the target is in view (fix 2)", () => {
   eq(S.offscreenArrow({ left: 100, top: 300, right: 200, bottom: 330 }, WIN, ARROW), null);
   eq(S.offscreenArrow({ left: 100, top: 780, right: 200, bottom: 830 }, WIN, ARROW), null);   // 20 px shown: in view
@@ -749,23 +749,23 @@ test("offscreenArrow: hidden while the target is in view (fix 2)", () => {
 });
 
 test("offscreenArrow: below → bottom edge, above → top edge, at the target's x (fix 2)", () => {
-  eq(S.offscreenArrow({ left: 400, top: 1500, right: 500, bottom: 1530 }, WIN, ARROW), { dir: "down", x: 428, y: 748 });
-  eq(S.offscreenArrow({ left: 400, top: -300, right: 500, bottom: -270 }, WIN, ARROW), { dir: "up", x: 428, y: 8 });
+  eq(S.offscreenArrow({ left: 400, top: 1500, right: 500, bottom: 1530 }, WIN, ARROW), { dir: "down", x: 422, y: 730 });
+  eq(S.offscreenArrow({ left: 400, top: -300, right: 500, bottom: -270 }, WIN, ARROW), { dir: "up", x: 422, y: 14 });
   // just 5 px peeking in: still an arrow
   eq(S.offscreenArrow({ left: 400, top: 795, right: 500, bottom: 825 }, WIN, ARROW).dir, "down");
 });
 
 test("offscreenArrow: x clamped to the screen", () => {
-  eq(S.offscreenArrow({ left: -500, top: 2000, right: -400, bottom: 2030 }, WIN, ARROW).x, 8);
-  eq(S.offscreenArrow({ left: 990, top: 2000, right: 1400, bottom: 2030 }, WIN, ARROW).x, 1000 - 44 - 8);
-  eq(S.offscreenArrow({ left: 0, top: 2000, right: 10, bottom: 2030 }, { left: 0, top: 0, right: 30, bottom: 800 }, ARROW).x, 8); // tiny view
+  eq(S.offscreenArrow({ left: -500, top: 2000, right: -400, bottom: 2030 }, WIN, ARROW).x, 14);
+  eq(S.offscreenArrow({ left: 990, top: 2000, right: 1400, bottom: 2030 }, WIN, ARROW).x, 1000 - 56 - 14);
+  eq(S.offscreenArrow({ left: 0, top: 2000, right: 10, bottom: 2030 }, { left: 0, top: 0, right: 30, bottom: 800 }, ARROW).x, 14); // tiny view
 });
 
 test("offscreenArrow inside a scrolling box (SJPT tree): its edges, not the window's", () => {
   const tree = S.visibleArea({ width: 1000, height: 800 }, [{ left: 0, top: 150, right: 240, bottom: 600 }]);
   eq(tree, { left: 0, top: 150, right: 240, bottom: 600 });
-  eq(S.offscreenArrow({ left: 20, top: 900, right: 200, bottom: 920 }, tree, ARROW), { dir: "down", x: 88, y: 548 });
-  eq(S.offscreenArrow({ left: 20, top: 100, right: 200, bottom: 120 }, tree, ARROW), { dir: "up", x: 88, y: 158 });
+  eq(S.offscreenArrow({ left: 20, top: 900, right: 200, bottom: 920 }, tree, ARROW), { dir: "down", x: 82, y: 530 });
+  eq(S.offscreenArrow({ left: 20, top: 100, right: 200, bottom: 120 }, tree, ARROW), { dir: "up", x: 82, y: 164 });
   eq(S.offscreenArrow({ left: 20, top: 300, right: 200, bottom: 320 }, tree, ARROW), null);
   // the box itself is below the window: point at the window's edge (scroll the page first)
   eq(S.visibleArea({ width: 1000, height: 800 }, [{ left: 0, top: 900, right: 240, bottom: 1400 }]),
@@ -837,6 +837,225 @@ test("new-tab hint: libseat is not a site the guide continues on", () => {
   eq(S.guideMessage(g, { kind: "here", index: 1 }, T), "You are there: “스터디룸 예약 / Study room booking” is highlighted. Click it to finish.");
   const next = S.guideMessage(Object.assign({}, g), { kind: "next", index: 1 }, T);
   ok(next.endsWith(T("hint_new_tab_external")) && next.indexOf(T("hint_new_tab")) < 0, next);
+});
+
+// ------------------------------------------------------------------ UI tweaks: arrow, ×
+
+test("arrow: 56 × 56, room for the 10 px bounce at both edges", () => {
+  eq(S.ARROW_SIZE, { width: 56, height: 56 });
+  ok(S.ARROW_MARGIN >= 10 + 2, "the bounce must stay on screen");
+  const down = S.offscreenArrow({ left: 400, top: 1500, right: 500, bottom: 1530 }, WIN, S.ARROW_SIZE);
+  ok(down.y + 56 + 10 <= 800, "↓ bounces down, still on screen");
+  const up = S.offscreenArrow({ left: 400, top: -300, right: 500, bottom: -270 }, WIN, S.ARROW_SIZE);
+  ok(up.y - 10 >= 0, "↑ bounces up, still on screen");
+});
+
+test("arrowBox: the label sits on the screen side (above ↓, below ↑)", () => {
+  eq(S.arrowBox({ dir: "down", x: 100, y: 730 }), { left: 100, top: 730 - S.ARROW_LABEL, right: 156, bottom: 786 });
+  eq(S.arrowBox({ dir: "up", x: 100, y: 14 }), { left: 100, top: 14, right: 156, bottom: 70 + S.ARROW_LABEL });
+  eq(T("scroll_down"), "Scroll down");
+  eq(T("scroll_up"), "Scroll up");
+});
+
+test("widget ×: hidden on every tab until the toolbar icon shows it again", () => {
+  ok(S.widgetWanted("widget", false) && S.widgetWanted(undefined, undefined));
+  ok(!S.widgetWanted("widget", true), "closed with ×");
+  ok(!S.widgetWanted("panel", false), "side panel mode");
+  // hide → toolbar icon → show
+  eq(S.toolbarAction(true, true), ["show"]);           // on a Sejong tab: show it again (no toggle)
+  eq(S.toolbarAction(true, false), ["toggle"]);        // shown: full ↔ mini, as before
+  eq(S.toolbarAction(false, false), ["panel"]);        // elsewhere: the side panel
+  eq(S.toolbarAction(false, true), ["panel", "show"]); // elsewhere, hidden: panel, and the widget is back on Sejong tabs
+  eq(S.widgetMode("mini", "full"), "full");            // shown again in the FULL view
+  eq(T("close"), "Close");
+});
+
+// ------------------------------------------------------------------ context steps (headings)
+
+test("skipContextSteps: a heading is passed without a click; the target never is", () => {
+  eq(S.skipContextSteps(2, 3, [2]), 3);           // 좌석 현황 → 더보기
+  eq(S.skipContextSteps(1, 5, [2, 3]), 1);        // only from the current step on
+  eq(S.skipContextSteps(2, 5, [2, 3]), 4);        // two headings in a row
+  eq(S.skipContextSteps(3, 3, [3]), 3);           // the last step (the target) stays
+  eq(S.skipContextSteps(2, 4, undefined), 2);
+  eq(S.mergeContext([2], [4, 2, 0, 9, "x"], 5), [2, 4]); // unique, sorted, never 0 or the last step
+});
+
+test("bug: 'free seats' on library home goes straight to 더보기, which gets the ↓ arrow", () => {
+  const g = S.newGuide(HOME_ROUTE, null, 1);                // portal.library → home → 좌석 현황 → 더보기
+  const last = HOME_ROUTE.length - 1;
+  const skip = S.skipDoneSteps(g, S.stepsOnPage(HOME_ROUTE, "https://library.sejong.ac.kr/"));
+  const context = S.mergeContext(g.context, [2], last);     // content.js: .seatHeader is not clickable
+  const step = S.skipContextSteps(skip.step, last, context);
+  eq(step, 3);
+  const visible = [1, 2, 3].filter((i) => i > skip.done && context.indexOf(i) < 0);
+  eq(S.pickStep(Object.assign({}, g, { step }), visible), { show: 3, step: 3 }); // the frame is on 더보기, not the heading
+  // 더보기 is below the window: the arrow points down
+  eq(S.offscreenArrow({ left: 900, top: 1400, right: 960, bottom: 1420 }, WIN, S.ARROW_SIZE).dir, "down");
+});
+
+test("crumbs: context steps greyed, not struck through or orange", () => {
+  const rows = S.crumbsModel(HOME_ROUTE.map((r) => Object.assign({ name_ko: r.id }, r)), 3, 3, [2]);
+  eq(rows.map((r) => r.state), ["", "done", "context", "current"]);
+});
+
+test("a step that can't be found says so (no silent nothing)", () => {
+  const route = [{ id: "a", name_ko: "학술정보원" }, { id: "b", name_ko: "더보기", label_en: "More seat status" }];
+  const g = S.newGuide(route, null, 1);
+  const view = { startedAt: 1, shown: -1, sejong: true, site: null };
+  const info = S.guideStatus(g, view);
+  eq(info.kind, "missing");
+  eq(S.guideMessage(g, info, T), "Step 1 of 1: Can't find “더보기 / More seat status” on this page.");
+});
+
+// ------------------------------------------------------------------ regression: off screen is FOUND
+
+// Library home at scroll top in a 1000 × 800 window. The site sets body { overflow-x: hidden }
+// (CSS then makes overflow-y "auto") and html/body { height: 100% }: the body box is only the first
+// screen high. Its overflow belongs to the window, so it must not hide what is below.
+const rectAt = (left, top, width, height) => ({ left, top, right: left + width, bottom: top + height, width, height });
+const SHOWN = { display: "block", visibility: "visible", opacity: "1", position: "static", checkVisible: true };
+const PLAIN = { overflowX: "visible", overflowY: "visible", position: "static", transform: "none", rect: null, clientWidth: 0, clientHeight: 0 };
+const BODY = { overflowX: "hidden", overflowY: "auto", position: "static", transform: "none", rect: rectAt(0, 0, 1000, 800), clientWidth: 1000, clientHeight: 800, body: true };
+const HTML_VISIBLE = { overflowX: "visible", overflowY: "visible" };
+const TOP = { x: 0, y: 0 };
+const onHome = (rect) => S.judgeVisibility(Object.assign({}, SHOWN, { rect }), [PLAIN, PLAIN, BODY], HTML_VISIBLE, TOP);
+
+test("judgeVisibility: below the window is FOUND, not hidden (regression)", () => {
+  eq(onHome(rectAt(900, 1340, 60, 20)).shown, true);            // 더보기, 540 px below the window
+  eq(onHome(rectAt(100, 1100, 80, 30)).shown, true);            // the STUDY ROOM GO button
+  eq(onHome(rectAt(100, 300, 80, 30)).shown, true);             // on screen, of course
+  // the body clips only when the window does not scroll it (html has its own overflow)
+  const own = S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(0, 1340, 60, 20) }), [BODY],
+    { overflowX: "hidden", overflowY: "hidden" }, TOP);
+  eq(own.shown, true);                                        // body is auto in y: a scroller
+  eq(own.scrollers, [0]);
+});
+
+test("judgeVisibility: a closed dropdown is hidden", () => {
+  const closedHidden = { overflowX: "hidden", overflowY: "hidden", position: "absolute", transform: "none",
+    rect: rectAt(100, 60, 200, 0), clientWidth: 200, clientHeight: 0 };
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(100, 60, 180, 24) }), [PLAIN, closedHidden, BODY], HTML_VISIBLE, TOP).shown, false);
+  const closedAuto = Object.assign({}, closedHidden, { overflowX: "auto", overflowY: "auto" }); // height 0: not scrollable
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(100, 60, 180, 24) }), [closedAuto], HTML_VISIBLE, TOP).shown, false);
+});
+
+test("judgeVisibility: not on the page → hidden", () => {
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { display: "none", rect: rectAt(0, 0, 0, 0) }), [], HTML_VISIBLE, TOP).shown, false);
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { visibility: "hidden", rect: rectAt(0, 0, 50, 20) }), [], HTML_VISIBLE, TOP).shown, false);
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { checkVisible: false, rect: rectAt(0, 0, 50, 20) }), [], HTML_VISIBLE, TOP).shown, false); // display:none parent
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(0, 0, 0, 0) }), [], HTML_VISIBLE, TOP).shown, false);   // zero size
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(-9999, 10, 80, 20) }), [], HTML_VISIBLE, TOP).shown, false); // left:-9999px
+  eq(S.judgeVisibility(null, [], HTML_VISIBLE, TOP).shown, false);
+});
+
+test("judgeVisibility: scrolled away inside the SJPT tree is FOUND, with its scroller", () => {
+  const tree = { overflowX: "hidden", overflowY: "auto", position: "relative", transform: "none",
+    rect: rectAt(0, 150, 240, 450), clientWidth: 240, clientHeight: 450 };
+  const v = S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(20, 900, 180, 20) }), [PLAIN, tree, BODY], HTML_VISIBLE, TOP);
+  eq(v, { shown: true, scrollers: [1], reason: null });
+  const view = S.visibleArea({ width: 1000, height: 800 }, [tree.rect]);
+  eq(S.offscreenArrow(S.frameGeometry(rectAt(20, 900, 180, 20)), view, S.ARROW_SIZE).dir, "down");
+  // position:absolute escapes a clipping ancestor that is not its containing block
+  const clipStatic = { overflowX: "hidden", overflowY: "hidden", position: "static", transform: "none", rect: rectAt(0, 0, 100, 10), clientWidth: 100, clientHeight: 10 };
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { position: "absolute", rect: rectAt(0, 50, 80, 20) }), [clipStatic], HTML_VISIBLE, TOP).shown, true);
+});
+
+// The whole flow, starting at scroll top: what content.js reports → what background.js picks →
+// what the widget says → where the arrow goes.
+function flow(route, elements, pageUrl) {
+  const guide = S.newGuide(route, null, 7);
+  const probe = { visible: [], hidden: [], here: [], context: [] };
+  for (const [index, e] of Object.entries(elements)) {
+    const i = Number(index);
+    (onHome(e.rect).shown ? probe.visible : probe.hidden).push(i);
+    if (e.here) probe.here.push(i);
+    if (!e.clickable) probe.context.push(i);
+  }
+  const plan = S.planGuide(guide, S.stepsOnPage(route, pageUrl), [probe]);
+  const now = Object.assign({}, guide, { step: Math.max(guide.step, plan.pick.step), context: plan.context });
+  const view = { startedAt: 7, shown: plan.pick.show, step: now.step, sejong: true, site: "library" };
+  const info = S.guideStatus(now, view);
+  const shownRect = elements[plan.pick.show] && elements[plan.pick.show].rect;
+  const arrow = shownRect ? S.offscreenArrow(S.frameGeometry(shownRect), S.visibleArea({ width: 1000, height: 800 }, []), S.ARROW_SIZE) : null;
+  return { plan, info, message: S.guideMessage(now, info, T), arrow, crumbs: S.crumbsModel(route, info.index, now.step, now.context).map((c) => c.state) };
+}
+
+test("flow: 'free seats' from scroll top → ↓ arrow on 더보기, no Can't find (regression)", () => {
+  const route = HOME_ROUTE.map((r) => Object.assign({ name_ko: r.id }, r));
+  const r = flow(route, {
+    1: { rect: rectAt(20, 20, 160, 40), clickable: true, here: true },     // the logo: this page
+    2: { rect: rectAt(600, 1300, 300, 30), clickable: false },             // 좌석 현황: a heading
+    3: { rect: rectAt(900, 1340, 60, 20), clickable: true },               // 더보기
+  }, "https://library.sejong.ac.kr/");
+  eq(r.plan.pick.show, 3);
+  eq(r.info.kind, "here");
+  ok(r.message.indexOf("Can't find") < 0, r.message);
+  eq(r.arrow && r.arrow.dir, "down");
+  eq(r.crumbs, ["", "done", "context", "current"]);
+});
+
+test("flow: 'Book a study room' from scroll top → ↓ arrow on GO, no Can't find (regression)", () => {
+  const route = [
+    { id: "portal.library", site: "portal", name_ko: "학술정보원", url: "https://library.sejong.ac.kr/" },
+    { id: "library.home", site: "library", name_ko: "세종대학교 학술정보원", url: "https://library.sejong.ac.kr/" },
+    { id: "library.studyroom_booking", site: "library", name_ko: "스터디룸 예약", label_en: "Study room booking",
+      url: "https://libseat.sejong.ac.kr/mobile/MA/LsroomList.php", opens_new_tab: true },
+  ];
+  const r = flow(route, {
+    1: { rect: rectAt(20, 20, 160, 40), clickable: true, here: true },
+    2: { rect: rectAt(100, 1100, 80, 30), clickable: true },               // GO, below the window
+  }, "https://library.sejong.ac.kr/");
+  eq(r.plan.pick.show, 2);
+  eq(r.info.kind, "here");
+  ok(r.message.indexOf("Can't find") < 0, r.message);
+  eq(r.arrow && r.arrow.dir, "down");
+});
+
+test("flow: a target inside a closed dropdown is not found → Can't find", () => {
+  const route = [{ id: "a", site: "library", name_ko: "홈" }, { id: "b", site: "library", name_ko: "대출현황", label_en: "Loans" }];
+  const guide = S.newGuide(route, null, 7);
+  const closed = { overflowX: "hidden", overflowY: "hidden", position: "absolute", transform: "none", rect: rectAt(0, 60, 200, 0), clientWidth: 200, clientHeight: 0 };
+  const shown = S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(0, 60, 180, 24) }), [closed, BODY], HTML_VISIBLE, TOP).shown;
+  const plan = S.planGuide(guide, [], [{ visible: shown ? [1] : [], hidden: shown ? [] : [1], here: [], context: [] }]);
+  const info = S.guideStatus(guide, { startedAt: 7, shown: plan.pick.show, step: 1, sejong: true, site: "library" });
+  eq(info.kind, "missing");
+  eq(S.guideMessage(guide, info, T), "Step 1 of 1: Can't find “대출현황 / Loans” on this page.");
+});
+
+test("judgeVisibility: scroll-reveal (opacity 0 until scrolled to) below the window is FOUND", () => {
+  const WIN_SIZE = { width: 1280, height: 900 };
+  // 더보기 at the agent's position, inside section#info that fades in when scrolled to
+  const more = Object.assign({}, SHOWN, { opacity: 0, rect: rectAt(955.8, 1036.6, 134.2, 20) });
+  eq(S.judgeVisibility(more, [PLAIN, PLAIN, BODY], HTML_VISIBLE, TOP, WIN_SIZE), { shown: true, scrollers: [], reason: null });
+  // the same on screen is really invisible: hidden (a closed fade-out menu)
+  const menu = Object.assign({}, SHOWN, { opacity: 0, rect: rectAt(100, 60, 120, 24) });
+  eq(S.judgeVisibility(menu, [PLAIN], HTML_VISIBLE, TOP, WIN_SIZE).reason, "opacity");
+});
+
+test("judgeVisibility: says why something is hidden", () => {
+  const r = rectAt(100, 60, 180, 24);
+  const closed = { overflowX: "hidden", overflowY: "hidden", position: "absolute", transform: "none", rect: rectAt(100, 60, 200, 0), clientWidth: 200, clientHeight: 0 };
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { rect: r }), [PLAIN, closed], HTML_VISIBLE, TOP).reason, "clip:1");
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { display: "none", rect: r }), [], HTML_VISIBLE, TOP).reason, "display");
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { visibility: "hidden", rect: r }), [], HTML_VISIBLE, TOP).reason, "visibility");
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(0, 0, 0, 10) }), [], HTML_VISIBLE, TOP).reason, "size");
+  eq(S.judgeVisibility(Object.assign({}, SHOWN, { rect: rectAt(-9999, 10, 80, 20) }), [], HTML_VISIBLE, TOP).reason, "offpage");
+});
+
+test("flow: 'free seats' with a scroll-reveal section → ↓ arrow on 더보기 (agent's page)", () => {
+  const route = HOME_ROUTE.map((r) => Object.assign({ name_ko: r.id }, r));
+  const guide = S.newGuide(route, null, 7);
+  const WIN_SIZE = { width: 1280, height: 900 };
+  const judge = (rect, opacity) => S.judgeVisibility(Object.assign({}, SHOWN, { rect, opacity }), [PLAIN, PLAIN, BODY], HTML_VISIBLE, TOP, WIN_SIZE).shown;
+  const probe = { visible: [], hidden: [], here: [1], context: [2] };
+  [[1, rectAt(20, 20, 160, 40), 1], [2, rectAt(600, 1030, 480, 30), 0], [3, rectAt(955.8, 1036.6, 134.2, 20), 0]]
+    .forEach(([i, rect, opacity]) => (judge(rect, opacity) ? probe.visible : probe.hidden).push(i));
+  const plan = S.planGuide(guide, S.stepsOnPage(route, "https://library.sejong.ac.kr/"), [probe]);
+  eq(plan.pick.show, 3);
+  const info = S.guideStatus(Object.assign({}, guide, { step: plan.pick.step }), { startedAt: 7, shown: plan.pick.show, sejong: true, site: "library" });
+  eq(info.kind, "here");
+  eq(S.offscreenArrow(S.frameGeometry(rectAt(955.8, 1036.6, 134.2, 20)), S.visibleArea(WIN_SIZE, []), S.ARROW_SIZE).dir, "down");
 });
 
 print("RESULT " + JSON.stringify({ passed, failures }));

@@ -29,6 +29,7 @@
   const I = root.SejongI18n;
   const CONFIG = root.SEJONG_CONFIG;
   const t = (key, subs) => I.t(key, subs);
+  const C = root.SejongContext; // chrome.* calls that survive an extension reload (context.js)
 
   function el(tag, attrs, ...children) {
     const node = document.createElement(tag);
@@ -42,8 +43,8 @@
     return node;
   }
 
-  function renderCrumbs(ol, route, highlightIndex, doneBefore) {
-    ol.replaceChildren(...S.crumbsModel(route, highlightIndex, doneBefore).map((c) =>
+  function renderCrumbs(ol, route, highlightIndex, doneBefore, context) {
+    ol.replaceChildren(...S.crumbsModel(route, highlightIndex, doneBefore, context).map((c) =>
       el("li", { class: c.state },
         el("span", { class: "crumb" }, el("span", { text: c.ko }), c.en ? el("span", { class: "en", text: c.en }) : null))));
   }
@@ -90,13 +91,13 @@
       const checkbox = (key, label) => {
         const input = el("input", { type: "checkbox" });
         input.checked = settings[key] !== false;
-        input.addEventListener("change", () => chrome.storage.local.set({ [key]: input.checked }));
+        input.addEventListener("change", () => C.storageSet({ [key]: input.checked }));
         return el("label", {}, input, " " + label);
       };
       const select = (key, options, label) => {
         const input = el("select", { "aria-label": label },
           ...options.map(([value, text]) => el("option", { value, text, selected: settings[key] === value })));
-        input.addEventListener("change", () => chrome.storage.local.set({ [key]: input.value }));
+        input.addEventListener("change", () => C.storageSet({ [key]: input.value }));
         return el("label", {}, label + " ", input);
       };
       const displayHint = el("p", { class: "muted", text: settings.display === "panel" ? t("display_panel_hint") : t("display_widget_hint") });
@@ -355,7 +356,7 @@
       parts.stop.hidden = !following;
       if (following) {
         const info = S.guideStatus(guide, view);
-        renderCrumbs(parts.crumbs, guide.route, info.index, guide.step);
+        renderCrumbs(parts.crumbs, guide.route, info.index, guide.step, guide.context);
         parts.status.textContent = S.guideMessage(guide, info, t);
         if (info.kind === "other-site") offerSite(guide.route[info.index].site);
         else if (info.kind === "missing" || info.kind === "other-tab") offerOpen(guide.route);
@@ -377,11 +378,11 @@
       }
       if (rebuild) build();
     };
-    chrome.storage.onChanged.addListener(onSettings);
+    const offSettings = C.onStorageChanged(onSettings);
     I.onChange(() => { if (!destroyed) { settings.uiLanguage = I.language(); build(); } });
 
     (async () => {
-      const stored = await chrome.storage.local.get(Object.keys(settings)).catch(() => ({}));
+      const stored = await C.storageGet(Object.keys(settings));
       settings.keepEnglish = stored.keepEnglish !== false;
       settings.translatePopups = stored.translatePopups !== false;
       settings.display = stored.display === "panel" ? "panel" : "widget";
@@ -398,7 +399,7 @@
       focus: () => parts && parts.q.focus(),
       destroy: () => {
         destroyed = true;
-        chrome.storage.onChanged.removeListener(onSettings);
+        offSettings();
         container.replaceChildren();
       },
     };

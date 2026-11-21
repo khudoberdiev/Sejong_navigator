@@ -256,3 +256,116 @@ def test_widget_lives_in_a_closed_shadow_root_below_the_frame():
     z_frame = int(re.search(r"z-index:\s*(\d+)", (EXT / "content.css").read_text(encoding="utf-8")).group(1))
     assert z_widget == z_frame - 1
     assert 'position: "fixed"' in text  # never part of the page's layout
+
+
+# --------------------------------------------------------------------- off-screen arrow, widget ×
+
+
+def test_arrow_is_56px_with_a_28px_thick_arrow_a_label_and_a_bounce():
+    css = (EXT / "arrow.css").read_text(encoding="utf-8")
+    assert css.startswith("/* AI-generated")
+    css = css.split("@media (prefers-reduced-motion", 1)[0]  # the normal rules only
+    arrow = dict((sel.strip(), body) for sel, body in _css_rules(css))[".arrow"]
+    assert "width: 56px" in arrow and "height: 56px" in arrow and "3px solid #d97757" in arrow
+    assert re.search(r"animation:\s*sejong-bounce 1s ease-in-out infinite", arrow)
+    assert "--bounce: 10px" in arrow and ':host([data-dir="up"]) .arrow { --bounce: -10px; }' in css
+    assert "width: 28px; height: 28px" in css and "stroke-width: 3.5" in css
+    glow = dict((sel.strip(), body) for sel, body in _css_rules(css))[".arrow::before"]
+    assert "sejong-glow 1s ease-in-out infinite" in glow  # pulses in step with the bounce
+    assert all(l.strip().startswith("inset") for l in re.split(r",(?![^(]*\))", re.search(r"box-shadow:([^;]+);", glow).group(1)))
+    # the label: above ↓ and below ↑, text from messages.json
+    assert ':host([data-dir="down"]) .label { bottom:' in css and ':host([data-dir="up"]) .label { top:' in css
+    js = (EXT / "content.js").read_text(encoding="utf-8")
+    assert 't("scroll_up")' in js and 't("scroll_down")' in js
+    assert 'attachShadow({ mode: "closed" })' in js  # site CSS cannot restyle it
+    host = (EXT / "content.css").read_text(encoding="utf-8")
+    host_rule = dict((sel.strip(), body) for sel, body in _css_rules(host))["sejong-nav-arrow"]
+    assert "width: 56px !important" in host_rule and "pointer-events: auto !important" in host_rule
+    # "all: initial !important" on the host would cancel an animation there: it lives in arrow.css
+    assert "animation" not in host_rule
+    assert re.search(r"ARROW_SIZE = \{ width: 56, height: 56 \}", (EXT / "shared.js").read_text(encoding="utf-8"))
+
+
+def test_arrow_respects_reduced_motion_but_keeps_its_glow():
+    css = (EXT / "arrow.css").read_text(encoding="utf-8")
+    reduced = css.split("@media (prefers-reduced-motion: reduce)", 1)[1]
+    assert ".arrow { animation: none; }" in reduced and ".arrow::before { animation: none; }" in reduced
+    assert "box-shadow" not in reduced and "display: none" not in reduced and "opacity: 0" not in reduced
+
+
+def test_widget_close_hides_everywhere_stops_the_guide_and_the_toolbar_icon_shows_it_again():
+    widget = (EXT / "widget.js").read_text(encoding="utf-8")
+    assert 'text: "×"' in widget and 'type: "widget:close"' in widget and 't("close")' in widget
+    assert "closePill" in widget and "sn-pill-close" in (EXT / "widget.css").read_text(encoding="utf-8")
+    bg = (EXT / "background.js").read_text(encoding="utf-8")
+    close = bg.split("async function closeWidget()", 1)[1].split("\n}\n", 1)[0]
+    assert "widgetHidden: true" in close and 'endGuide("stopped")' in close  # endGuide clears every frame and arrow
+    assert '"widget:close": () => closeWidget()' in bg
+    assert "S.toolbarAction(" in bg and 'widgetHidden: false, widgetMode: "full"' in bg
+    content = (EXT / "content.js").read_text(encoding="utf-8")
+    assert "S.widgetWanted(display, widgetHidden)" in content and "changes.widgetHidden" in content
+
+
+# --------------------------------------------------------------------- extension reloaded (context.js)
+
+
+@needs_jsc
+def test_context_guard_survives_an_extension_reload(tmp_path):
+    script = tmp_path / "context.js"
+    script.write_text((ROOT / "tests" / "js" / "fake_chrome.js").read_text(encoding="utf-8") + "\n"
+                      + (EXT / "context.js").read_text(encoding="utf-8") + "\n"
+                      + (ROOT / "tests" / "js" / "context.test.js").read_text(encoding="utf-8"), encoding="utf-8")
+    proc = subprocess.run([str(JSC), str(script)], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(next(line for line in proc.stdout.splitlines() if line.startswith("RESULT "))[7:])
+    assert result["failures"] == [] and result["passed"] == 4, result
+
+
+def test_content_scripts_never_call_chrome_directly():
+    # Only context.js touches chrome.runtime / chrome.storage; a direct call in an orphaned
+    # content script throws "Extension context invalidated" (widget.js:124 did).
+    direct = re.compile(r"chrome\.(runtime|storage)\.")
+    for name in ("content.js", "widget.js", "ui.js", "i18n.js"):
+        code = "\n".join(line for line in (EXT / name).read_text(encoding="utf-8").splitlines()
+                         if not line.strip().startswith("//"))
+        assert not direct.search(code), f"{name}: use SejongContext (context.js) instead"
+    content = (EXT / "content.js").read_text(encoding="utf-8")
+    assert "C.onDead(() => instance.shutdown())" in content
+    shutdown = content.split("instance.shutdown = () => {", 1)[1].split("\n  };", 1)[0]
+    for step in ("clearPointer()", "widget.destroy()", "englishObserver.disconnect()", "popupObserver.disconnect()",
+                 'removeEventListener("click", onDocumentClick, true)', 'removeEventListener("sejong-nav-dialog", onPageDialog)'):
+        assert step in shutdown, step
+    # context.js loads before everything that uses it, everywhere
+    manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
+    js = next(s for s in manifest["content_scripts"] if "content.js" in s["js"])["js"]
+    assert js.index("context.js") < min(js.index(f) for f in ("i18n.js", "ui.js", "widget.js", "content.js"))
+    popup = (EXT / "popup.html").read_text(encoding="utf-8")
+    assert popup.index('src="context.js"') < popup.index('src="i18n.js"') < popup.index('src="ui.js"')
+    assert 'importScripts("config.js", "shared.js", "context.js", "i18n.js")' in (EXT / "background.js").read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------- context steps (headings)
+
+
+def test_sjpt_tree_nodes_and_tabs_count_as_clickable():
+    # SJPT's WebSquare nodes have no a/button/[onclick]: content.js must still treat them as
+    # clickable, or every SJPT step would be skipped as a heading.
+    content = (EXT / "content.js").read_text(encoding="utf-8")
+    scripted = re.search(r'SCRIPTED_CLICKABLE = "([^"]+)"', content).group(1)
+    patterns = [re.escape(p.split("*=")[1].rstrip("]")) for p in scripted.split(", ")]
+    for item in load_menu_items().values():
+        if item.site == "sjpt" and item.selector_desktop and not item.selector_desktop.lstrip().startswith("a"):
+            assert any(re.search(p, item.selector_desktop) for p in patterns), item.id
+    assert "cursor === \"pointer\"" in content  # script-driven buttons elsewhere
+
+
+def test_visibility_never_treats_off_screen_as_hidden():
+    content = (EXT / "content.js").read_text(encoding="utf-8")
+    code = "\n".join(l for l in content.splitlines() if not l.strip().startswith("//"))
+    # content-visibility:auto sections below the window would count as hidden
+    assert "contentVisibilityAuto" not in code
+    assert "S.judgeVisibility(" in code
+    assert "checkOpacity" not in code  # opacity 0 is judged by S.judgeVisibility (off screen: found)
+    # the clickable check reads roles and the cursor, never the position on screen
+    clickable = content.split("function isClickable(el) {", 1)[1].split("\n  }", 1)[0]
+    assert "getBoundingClientRect" not in clickable and "isVisible" not in clickable

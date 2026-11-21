@@ -43,13 +43,17 @@
   }
   let dead = false;
   const instance = {
-    alive: () => { try { return !dead && !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; } },
+    alive: () => !dead && globalThis.SejongContext.alive(),
     shutdown: () => { dead = true; }, // replaced below, once everything it stops exists
   };
   window.__sejongNavigator = instance;
 
   const S = globalThis.SejongShared;
   const I = globalThis.SejongI18n;
+  // Every chrome.* call goes through context.js: after the extension is reloaded this copy is
+  // orphaned, and a direct call would throw "Extension context invalidated". C.onDead (below)
+  // then removes everything this copy shows and detaches its listeners, silently.
+  const C = globalThis.SejongContext;
   const t = (key, subs) => I.t(key, subs);
   const hostname = location.hostname || (self.origin && self.origin !== "null" ? new URL(self.origin).hostname : "");
   const SITE = S.siteForHost(hostname);
@@ -179,14 +183,14 @@
 
   let recording = false;
   const settings = { keepEnglish: true, translatePopups: true }; // both on unless switched off in the popup
-  chrome.storage.local.get(["recording", "keepEnglish", "translatePopups"]).then((r) => {
+  C.storageGet(["recording", "keepEnglish", "translatePopups"]).then((r) => {
     recording = !!r.recording;
     settings.keepEnglish = r.keepEnglish !== false;
     settings.translatePopups = r.translatePopups !== false;
     updateEnglish();
     startPopupWatch();
   });
-  chrome.storage.onChanged.addListener((changes, area) => {
+  C.onStorageChanged((changes, area) => {
     if (area !== "local") return;
     if (changes.recording) recording = !!changes.recording.newValue;
     if (changes.keepEnglish) settings.keepEnglish = changes.keepEnglish.newValue !== false;
@@ -210,7 +214,7 @@
       flash(el, false);
       return;
     }
-    chrome.runtime.sendMessage({ type: "rec:click", site: SITE, steps }).catch(() => {});
+    C.send({ type: "rec:click", site: SITE, steps });
     flash(el, true);
   }
 
@@ -218,57 +222,64 @@
 
   const FRAME_TAG = "sejong-nav-frame"; // the overlay (an unknown tag, so site CSS leaves it alone)
   const ARROW_TAG = "sejong-nav-arrow"; // the off-screen pointer (content.css)
-  const ARROW_SIZE = { width: 44, height: 44 }; // = its CSS size
+  const ARROW_SIZE = S.ARROW_SIZE; // 56 × 56 (content.css, arrow.css)
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  let arrowCss = null; // arrow.css, from background.js (content scripts cannot read extension files)
   const WIDGET_TAG = globalThis.SejongWidget.HOST_TAG; // the floating widget (top frame)
   let widget = null;
   let guiding = false;
   let current = null; // {el, frame, index, startedAt}
 
-  // Really visible to the user, judged on the element itself, not on its parent's state:
-  //   * checkVisibility(): display:none anywhere up the tree, visibility:hidden, opacity:0,
-  //     content-visibility (Chrome 105+; the extension needs 116)
-  //   * its own box (getBoundingClientRect) is at least 1×1 px
-  //   * that box is not cut away by an ancestor with overflow:hidden/clip (a closed height:0
-  //     dropdown) or pushed off the top/left of the document (left:-9999px menus).
-  //     CSS rules: position:absolute escapes clipping ancestors below its containing block,
-  //     position:fixed escapes all of them.
-  //   A box the student can SCROLL (overflow auto/scroll, content taller or wider than it, e.g.
-  //   the SJPT menu tree) does not hide what is inside it: that is only scrolled away, like the
-  //   page below the window. Those boxes are returned as `scrollers` (the off-screen arrow).
-  //   → { shown, scrollers: [elements] }
-  function isScroller(node, s) {
-    const y = /auto|scroll/.test(s.overflowY) && node.clientHeight >= 1 && node.scrollHeight > node.clientHeight + 1;
-    const x = /auto|scroll/.test(s.overflowX) && node.clientWidth >= 1 && node.scrollWidth > node.clientWidth + 1;
-    return x || y;
+  // Found or hidden? Judged on the element itself, not on its parent's state (S.judgeVisibility
+  // decides; this only reads the page). Off screen is FOUND: below or above the window, or
+  // scrolled away inside a scrolling box (the SJPT tree) → the ↑/↓ arrow, never "Can't find".
+  // Hidden: display:none anywhere up the tree, visibility:hidden (checkVisibility, Chrome 105+;
+  // the extension needs 116), a box under 1×1 px, cut away by an overflow hidden/clip ancestor
+  // (a closed height:0 dropdown), or transparent (opacity 0 up the tree) while ON screen: off
+  // screen it is found, scroll-reveal sections fade in only when scrolled to.
+  // Not used: checkVisibility's contentVisibilityAuto option. It calls an element in an off-screen
+  // "content-visibility: auto" section hidden, which is exactly "below the window".
+  //   → { shown, scrollers: [the scrolling boxes around it, inner first], reason, culprit }
+  //   (reason/culprit: why it is hidden and which element did it, for the console note below)
+  function visibility(el) {
+    const checkVisible = typeof el.checkVisibility === "function"
+      ? el.checkVisibility({ checkVisibilityCSS: true }) : undefined;
+    const style = getComputedStyle(el);
+    const target = {
+      display: style.display, visibility: style.visibility, opacity: parseFloat(style.opacity), position: style.position,
+      rect: el.getBoundingClientRect(), checkVisible,
+    };
+    if (checkVisible === false || style.display === "none") return { shown: false, scrollers: [], reason: "display", culprit: null };
+    const nodes = [];
+    const ancestors = [];
+    for (let node = el.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+      const s = getComputedStyle(node);
+      nodes.push(node);
+      target.opacity *= parseFloat(s.opacity); // what the student sees: the product up the tree
+      ancestors.push({
+        overflowX: s.overflowX, overflowY: s.overflowY, position: s.position, transform: s.transform,
+        rect: s.overflowX === "visible" && s.overflowY === "visible" ? null : node.getBoundingClientRect(),
+        clientWidth: node.clientWidth, clientHeight: node.clientHeight, body: node === document.body,
+      });
+    }
+    const html = getComputedStyle(document.documentElement);
+    target.opacity *= parseFloat(html.opacity);
+    const v = S.judgeVisibility(target, ancestors, { overflowX: html.overflowX, overflowY: html.overflowY },
+      { x: scrollX, y: scrollY }, viewportSize());
+    const clip = /^clip:(\d+)$/.exec(v.reason || "");
+    return { shown: v.shown, scrollers: v.scrollers.map((k) => nodes[k]), reason: v.reason, culprit: clip ? nodes[Number(clip[1])] : null };
   }
 
-  function visibility(el) {
-    const scrollers = [];
-    if (typeof el.checkVisibility === "function" &&
-        !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) return { shown: false, scrollers };
-    const style = getComputedStyle(el);
-    if (style.display === "none" || style.visibility !== "visible" || parseFloat(style.opacity) === 0) return { shown: false, scrollers };
-    const clips = [{ left: -scrollX, top: -scrollY, right: Infinity, bottom: Infinity }];
-    let position = style.position;
-    for (let node = el.parentElement; node && node !== document.documentElement && position !== "fixed"; node = node.parentElement) {
-      const s = getComputedStyle(node);
-      const containsAbsolute = s.position !== "static" || s.transform !== "none";
-      if (position !== "absolute" || containsAbsolute) {
-        const clipX = s.overflowX !== "visible";
-        const clipY = s.overflowY !== "visible";
-        if ((clipX || clipY) && node !== document.body && isScroller(node, s)) {
-          scrollers.push(node);
-        } else if (clipX || clipY) {
-          const r = node.getBoundingClientRect();
-          clips.push({
-            left: clipX ? r.left : -Infinity, right: clipX ? r.right : Infinity,
-            top: clipY ? r.top : -Infinity, bottom: clipY ? r.bottom : Infinity,
-          });
-        }
-        position = s.position; // this box is now what the next ancestors must contain
-      }
-    }
-    return { shown: S.boxIsShown(el.getBoundingClientRect(), clips), scrollers };
+  // A step that IS on the page but is judged hidden: say why in the console, once per step and
+  // reason, so a wrong verdict can be checked (tag#id.class of the element that hid it; never text).
+  const hiddenNoted = new Set();
+  function noteHidden(item, el) {
+    const v = visibility(el);
+    const key = `${item.id}|${v.reason}`;
+    if (v.shown || hiddenNoted.has(key)) return;
+    hiddenNoted.add(key);
+    const name = (n) => n ? n.localName + (n.id ? "#" + n.id : "") + [...n.classList].map((c) => "." + c).join("") : "";
+    console.debug(`[Sejong Navigator] ${item.id}: on the page but hidden (${v.reason}${v.culprit ? " by " + name(v.culprit) : ""})`);
   }
 
   function isVisible(el) {
@@ -357,22 +368,38 @@
     return !!a && S.isRealLink(a.getAttribute("href")) && S.samePage(a.href, location.href);
   }
 
+  // Can the student click this element? Links, buttons, form controls, [onclick], ARIA widget
+  // roles, anything showing the pointer cursor, and WebSquare's tree nodes and top tabs (SJPT:
+  // their handlers are attached by script, with no attribute to see). Not clickable: a heading
+  // or box such as 좌석 현황 (.seatHeader), or a sub-heading in a mega menu (기타 서비스).
+  const CLICKABLE = "a, button, input, select, textarea, label, summary, [onclick], [role=button], [role=link], " +
+    "[role=menuitem], [role=treeitem], [role=tab], [role=option], [role=checkbox], [tabindex]:not([tabindex='-1'])";
+  const SCRIPTED_CLICKABLE = "[class*=w2treeview], [id*=TreeMenu], [id*=tabTopMenu]"; // WebSquare (SJPT)
+  function isClickable(el) {
+    if (el.closest(CLICKABLE) || el.closest(SCRIPTED_CLICKABLE)) return true;
+    try { return getComputedStyle(el).cursor === "pointer"; } catch (e) { return true; }
+  }
+
   // Which path steps are in this frame. Step 0 (the site root) is skipped.
   //   → { site, lang, visible: [indices on screen], hidden: [indices in the DOM but hidden],
-  //       here: [indices whose link points to this very page] }
+  //       here: [indices whose link points to this very page],
+  //       context: [indices found here whose element is not clickable: headings, see isClickable] }
   function probeSteps(path) {
     const visible = [];
     const hidden = [];
     const here = [];
+    const context = [];
     const found = [];
     for (let i = 1; i < path.length; i++) {
       const hit = findElement(path[i]);
       if (!hit) continue;
       (hit.visible ? visible : hidden).push(i);
+      if (!hit.visible && i === path.length - 1) noteHidden(path[i], hit.el); // the target: why not shown?
       if (hit.visible) found.push({ item: path[i], el: hit.el });
       if (linksHere(hit.el)) here.push(i);
+      if (!isClickable(hit.el)) context.push(i);
     }
-    return { site: SITE, lang: pageLanguage(found), visible, hidden, here };
+    return { site: SITE, lang: pageLanguage(found), visible, hidden, here, context };
   }
 
   // The highlight is an overlay: a fixed-position <sejong-nav-frame> drawn over the target's
@@ -405,7 +432,7 @@
     const { el, frame, arrow } = current;
     if (!el.isConnected) { // the site rebuilt its menu: find the step again
       clearPointer();
-      if (!dead) chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {});
+      if (!dead) C.send({ type: "guide:refresh" });
       return;
     }
     if (current.tick++ % VISIBILITY_EVERY === 0) ({ shown: current.shown, scrollers: current.scrollers } = visibility(el));
@@ -417,7 +444,7 @@
     if (key !== current.key) {
       current.key = key;
       current.target = !current.shown ? null : off
-        ? { left: off.x, top: off.y, right: off.x + ARROW_SIZE.width, bottom: off.y + ARROW_SIZE.height }
+        ? S.arrowBox(off, ARROW_SIZE) // with its label
         : box;
       if (widget) widget.setTarget(current.target); // the widget keeps clear of the frame or the arrow
       setImportant(frame, current.shown && !off ? {
@@ -426,8 +453,8 @@
       } : { display: "none" });
       if (off) {
         if (arrow.dataset.dir !== off.dir) {
-          arrow.dataset.dir = off.dir;
-          arrow.textContent = off.dir === "up" ? "↑" : "↓";
+          arrow.dataset.dir = off.dir; // arrow.css: points and bounces that way, label on the screen side
+          arrow.sejongLabel.textContent = off.dir === "up" ? t("scroll_up") : t("scroll_down");
           arrow.title = off.dir === "up" ? t("arrow_up") : t("arrow_down");
           arrow.setAttribute("aria-label", arrow.title);
         }
@@ -446,6 +473,25 @@
     arrow.setAttribute("role", "button");
     arrow.setAttribute("tabindex", "0");
     setImportant(arrow, { display: "none" });
+    // Inside a closed shadow root: <style> (arrow.css), the bouncing box with a ↓ (rotated for ↑)
+    // drawn as a thick SVG stroke, and the "Scroll down" / "Scroll up" label.
+    const shadow = arrow.attachShadow({ mode: "closed" });
+    const style = document.createElement("style");
+    const box = document.createElement("div");
+    box.className = "arrow";
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", "M12 4v15M5 12.5l7 7 7-7");
+    svg.append(path);
+    const label = document.createElement("span");
+    label.className = "label";
+    box.append(svg, label);
+    shadow.append(style, box);
+    arrow.sejongLabel = label;
+    const css = arrowCss || C.send({ type: "ui:arrowCss" }).then((a) => (a && a.ok ? a.data.css : ""));
+    Promise.resolve(css).then((text) => { arrowCss = text || arrowCss; style.textContent = text || ""; }).catch(() => {});
     const go = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -502,7 +548,7 @@
       return;
     }
     if (!labelMap) {
-      const answer = await chrome.runtime.sendMessage({ type: "labels:get" }).catch(() => null);
+      const answer = await C.send({ type: "labels:get" });
       // Korean label (S.labelKey) -> [{en, selectors}] (background.js labelPairs)
       labelMap = new Map((answer && answer.ok ? answer.data : []).map(([ko, entries]) => [S.labelKey(ko), entries]));
     }
@@ -620,7 +666,7 @@
   }
 
   function reportPopup(text, kind) {
-    chrome.runtime.sendMessage({ type: "popup:found", text: text.slice(0, 3000), kind }).catch(() => {});
+    C.send({ type: "popup:found", text: text.slice(0, 3000), kind });
   }
 
   function scanPopups() {
@@ -634,13 +680,14 @@
     }
   }
 
-  document.addEventListener("sejong-nav-dialog", (event) => { // from page_hook.js
+  const onPageDialog = (event) => { // from page_hook.js
     if (!settings.translatePopups) return;
     try {
       const { kind, message } = JSON.parse(event.detail);
       if (S.hasHangul(message)) reportPopup(message, kind);
     } catch (e) { /* not ours */ }
-  });
+  };
+  document.addEventListener("sejong-nav-dialog", onPageDialog);
 
   // --- top frame only: translate and show the overlay
 
@@ -660,7 +707,7 @@
         downloadable = availability === "downloadable" || availability === "downloading";
       } catch (e) { /* API present but blocked here: try the next option */ }
     }
-    const answer = await chrome.runtime.sendMessage({ type: "translate:libre", text }).catch(() => null);
+    const answer = await C.send({ type: "translate:libre", text });
     if (answer && answer.ok && answer.data) return { text: answer.data, engine: t("engine_libre") };
     return downloadable ? { needsDownload: true } : null;
   }
@@ -760,8 +807,8 @@
 
   // ---------------------------------------------------------------- events
 
-  document.addEventListener("click", (event) => {
-    if (dead) return; // an orphan from before an extension reload: a fresh copy took over
+  const onDocumentClick = (event) => {
+    if (dead || !C.alive()) return; // an orphan from before an extension reload (C.onDead cleans up)
     if (event.target instanceof Element && event.target.closest(`${WIDGET_TAG}, ${ARROW_TAG}`)) return; // our own UI
     if (recording) recordClick(event.target);
     // The user clicked the highlighted step: save the next step (before the page navigates away).
@@ -771,14 +818,14 @@
         event.preventDefault();
         event.stopPropagation();
       }
-      chrome.runtime.sendMessage({ type: "guide:clicked", index: current.index, startedAt: current.startedAt, reuse: current.reuse })
-        .catch(() => {});
+      C.send({ type: "guide:clicked", index: current.index, startedAt: current.startedAt, reuse: current.reuse });
     }
     // After a click the menu may open or the page may change: look for the next step.
-    if (guiding) setTimeout(() => chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {}), 500);
-  }, true);
+    if (guiding) setTimeout(() => C.send({ type: "guide:refresh" }), 500);
+  };
+  document.addEventListener("click", onDocumentClick, true);
 
-  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  C.onMessage((msg, _sender, sendResponse) => {
     switch (msg && msg.type) {
       case "rec:scanFrame": {
         const hadEnglish = replaced.size > 0;
@@ -799,6 +846,10 @@
         showPointer(msg.path, msg.index, msg.startedAt, msg.reuse);
         sendResponse({ ok: true });
         break;
+      case "widget:ping": // is the content script here? (toolbar icon, before injecting it)
+        if (window !== window.top) return false;
+        sendResponse({ ok: true });
+        break;
       case "widget:toggle": // toolbar icon in widget mode (top frame only)
         if (window !== window.top) return false;
         if (widget) widget.toggle();
@@ -817,23 +868,34 @@
 
   // Called by a fresh copy (injected after an extension reload) on this orphaned one: remove
   // what it shows and stop what it watches.
+  // Also run by context.js when the extension went away (reloaded while this tab was open):
+  // this copy's widget, frame and arrow disappear (only its own: a fresh copy may already show
+  // new ones) and nothing is listened to any more.
   instance.shutdown = () => {
+    if (dead) return;
     dead = true;
     guiding = false;
-    clearPointer();
-    if (widget) { widget.destroy(); widget = null; }
+    try { clearPointer(); } catch (e) { /* half gone */ }
+    if (current) { current.frame.remove(); current.arrow.remove(); current = null; }
+    if (widget) { try { widget.destroy(); } catch (e) { /* its host is removed below */ } widget = null; }
     englishObserver.disconnect();
     popupObserver.disconnect();
+    clearTimeout(englishTimer);
+    clearTimeout(popupTimer);
+    document.removeEventListener("click", onDocumentClick, true);
+    document.removeEventListener("sejong-nav-dialog", onPageDialog);
   };
+  C.onDead(() => instance.shutdown());
 
   // ---------------------------------------------------------------- floating widget
 
   // The default UI (widget.js), in the TOP frame of Sejong pages only, unless Settings →
-  // Display is "Side panel". It only renders guide state and sends messages.
+  // Display is "Side panel" or it was closed with × (widgetHidden; the toolbar icon shows it
+  // again). It only renders guide state and sends messages.
   async function updateWidget() {
     if (dead || window !== window.top) return;
-    const { display } = await chrome.storage.local.get("display").catch(() => ({}));
-    const wanted = display !== "panel";
+    const { display, widgetHidden } = await C.storageGet(["display", "widgetHidden"]);
+    const wanted = S.widgetWanted(display, widgetHidden);
     if (wanted && !widget) {
       widget = globalThis.SejongWidget.create(SITE);
       if (current && current.target) widget.setTarget(current.target);
@@ -842,12 +904,12 @@
       widget = null;
     }
   }
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes.display) updateWidget();
+  C.onStorageChanged((changes, area) => {
+    if (area === "local" && (changes.display || changes.widgetHidden)) updateWidget();
   });
   I.init().then(updateWidget, updateWidget);
 
   // A new page (or frame) loaded, also a new tab opened by SSO, or background.js injected this
   // copy into an open tab: if a guide is active, continue it.
-  chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {});
+  C.send({ type: "guide:refresh" });
 })();

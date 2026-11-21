@@ -4,6 +4,8 @@
 //   mini     a small "—" pill; click it to expand
 //   compact  only the click path (current step orange, done steps struck through) + Stop
 //   full     everything the side panel's Search tab has (ui.js): search, results, path, status, Settings
+// × (header; on the pill: on hover) closes it on EVERY Sejong tab and stops a running guide, so
+// no frame or arrow is left. background.js saves widgetHidden; the toolbar icon brings it back.
 // Rules:
 //   * a CLOSED Shadow DOM: the site's CSS cannot reach in, ours cannot leak out. The host is
 //     position:fixed, so the page never resizes or shifts. z-index one below the highlight frame.
@@ -20,13 +22,14 @@
   const I = root.SejongI18n;
   const UI = root.SejongUI;
   const t = (key, subs) => I.t(key, subs);
+  const C = root.SejongContext; // chrome.* calls that survive an extension reload (context.js)
   const HOST_TAG = "sejong-nav-widget";
   const Z_INDEX = "2147483646"; // the highlight frame (content.css) is 2147483647: always on top
   const DRAG_THRESHOLD = 4;     // px: less is a click
 
   async function send(message) {
-    const answer = await chrome.runtime.sendMessage(message);
-    if (!answer || !answer.ok) throw new Error(answer ? answer.error : t("no_answer"));
+    const answer = await C.send(message); // null when the extension was reloaded: never throws on its own
+    if (!answer || !answer.ok) throw new Error(answer ? answer.error : C.alive() ? t("no_answer") : "extension reloaded");
     return answer.data;
   }
 
@@ -53,14 +56,17 @@
     const title = UI.el("span", { class: "sn-title" });
     const collapse = UI.el("button", { class: "icon sn-collapse", text: "–" });
     const expand = UI.el("button", { class: "icon sn-expand", text: "+" });
-    const head = UI.el("header", { class: "sn-head" }, title, UI.el("span", { class: "sn-buttons" }, collapse, expand));
+    const close = UI.el("button", { class: "icon sn-close", text: "×" });
+    const closePill = UI.el("button", { class: "sn-pill-close", text: "×" });
+    const head = UI.el("header", { class: "sn-head" }, title, UI.el("span", { class: "sn-buttons" }, collapse, expand, close));
     const compactCrumbs = UI.el("ol", { class: "crumbs" });
     const compactEmpty = UI.el("p", { class: "muted" });
     const compactStop = UI.el("button", {});
-    const compact = UI.el("div", { class: "sn-compact" }, compactCrumbs, compactEmpty, UI.el("div", { class: "row" }, compactStop));
+    const compactStatus = UI.el("p", { class: "muted status", "aria-live": "polite", hidden: true });
+    const compact = UI.el("div", { class: "sn-compact" }, compactCrumbs, compactStatus, compactEmpty, UI.el("div", { class: "row" }, compactStop));
     const full = UI.el("div", { class: "sn-full" });
     const card = UI.el("div", { class: "sn-card" }, head, compact, full);
-    const box = UI.el("div", { class: "sn-widget" }, pill, card);
+    const box = UI.el("div", { class: "sn-widget" }, pill, closePill, card);
     shadow.append(style, box);
     document.documentElement.append(host);
 
@@ -92,6 +98,10 @@
       expand.title = t("widget_to_full");
       expand.setAttribute("aria-label", expand.title);
       head.title = t("widget_drag");
+      for (const button of [close, closePill]) {
+        button.title = t("close");
+        button.setAttribute("aria-label", t("close"));
+      }
       compactStop.textContent = t("stop");
       compactEmpty.textContent = t("no_guide_running");
     }
@@ -110,7 +120,13 @@
       compactCrumbs.hidden = !guide;
       if (guide) {
         const info = S.guideStatus(guide, state.view);
-        UI.renderCrumbs(compactCrumbs, guide.route, info.index, guide.step);
+        UI.renderCrumbs(compactCrumbs, guide.route, info.index, guide.step, guide.context);
+        // The status line too when something needs saying ("Can't find …", another site, reload)
+        const say = ["missing", "other-site", "reload", "kor-only", "other-tab"].indexOf(info.kind) >= 0;
+        compactStatus.hidden = !say;
+        compactStatus.textContent = say ? S.guideMessage(guide, info, t) : "";
+      } else {
+        compactStatus.hidden = true;
       }
       place();
     }
@@ -123,7 +139,7 @@
       box.dataset.mode = mode;
       expand.hidden = mode === "full";
       applyText();
-      if (save) chrome.storage.local.set({ widgetMode: mode }).catch(() => {});
+      if (save) C.storageSet({ widgetMode: mode });
       place();
     }
 
@@ -161,7 +177,7 @@
       if (moved) {
         const r = host.getBoundingClientRect();
         home = S.clampWidget({ x: r.left, y: r.top }, size(), viewport());
-        chrome.storage.local.set({ widgetPos: home }).catch(() => {});
+        C.storageSet({ widgetPos: home });
         place(); // dropped onto the highlight: step aside again
       } else if (handle === pill) {
         setMode("expand");
@@ -174,6 +190,11 @@
       handle.addEventListener("pointercancel", endDrag);
     }
     collapse.addEventListener("click", () => setMode("collapse"));
+    // Hide everywhere + stop the guide (background.js); this tab's widget goes with the storage change.
+    for (const button of [close, closePill]) {
+      button.addEventListener("pointerdown", (e) => e.stopPropagation()); // not a drag of the pill
+      button.addEventListener("click", () => send({ type: "widget:close" }).catch(() => {}));
+    }
     expand.addEventListener("click", () => setMode("expand"));
 
     const onResize = () => requestAnimationFrame(place);
@@ -193,13 +214,13 @@
       if (area === "local" && changes.widgetMode && changes.widgetMode.newValue !== mode) setMode(changes.widgetMode.newValue, false);
       if (area === "local" && changes.widgetPos && !dragging) { home = changes.widgetPos.newValue || null; place(); }
     };
-    chrome.storage.onChanged.addListener(onStorage);
+    const offStorage = C.onStorageChanged(onStorage);
     I.onChange(() => { if (!destroyed) { applyText(); place(); } });
 
     (async () => {
       const [{ css }, stored] = await Promise.all([
         send({ type: "ui:css" }).catch(() => ({ css: "" })),
-        chrome.storage.local.get(["widgetMode", "widgetPos"]).catch(() => ({})),
+        C.storageGet(["widgetMode", "widgetPos"]),
       ]);
       if (destroyed) return;
       style.textContent = css;
@@ -221,7 +242,7 @@
         destroyed = true;
         removeEventListener("resize", onResize);
         sizeWatcher.disconnect();
-        chrome.storage.onChanged.removeListener(onStorage);
+        offStorage();
         ui.destroy();
         host.remove();
       },

@@ -8,7 +8,7 @@
 //   4. Serves the Korean → English label pairs for Keep-English.
 //   5. Relays pop-ups found in any frame to the top frame; optional self-hosted translation.
 //   6. Serves the UI: the floating widget's state, styles and messages; Display setting.
-importScripts("config.js", "shared.js", "i18n.js");
+importScripts("config.js", "shared.js", "context.js", "i18n.js");
 
 const { BACKEND_URL } = self.SEJONG_CONFIG;
 const S = self.SejongShared;
@@ -24,6 +24,8 @@ const sessionReady = chrome.storage.session.setAccessLevel({ accessLevel: "TRUST
 // Settings → Display: "widget" (default: the floating widget on Sejong pages) or "panel"
 // (Chrome's side panel). With the panel, the toolbar icon opens it; with the widget, the
 // toolbar icon shows/hides the widget on a Sejong tab and opens the panel anywhere else.
+// The widget's × hides it on every Sejong tab (widgetHidden in chrome.storage.local) and stops
+// the guide; the toolbar icon then shows it again, in the FULL view (S.toolbarAction).
 async function applyDisplay() {
   const { display } = await chrome.storage.local.get("display");
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: display === "panel" }).catch(() => {});
@@ -34,18 +36,31 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // Fires only in widget mode (in panel mode Chrome opens the panel itself).
-chrome.action.onClicked.addListener((tab) => {
-  const sejong = /^https?:\/\/([^/?#:]+)/i.exec(tab.url || "");
-  if (!sejong || !S.siteForHost(sejong[1])) {
-    chrome.sidePanel.open({ tabId: tab.id }).catch(() => {}); // called right away: still a user gesture
-    return;
+chrome.action.onClicked.addListener(async (tab) => {
+  const onSejong = !!S.siteOfUrl(tab.url);
+  // sidePanel.open must be called right away (still the user gesture), before any await.
+  if (!onSejong) chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
+  const { widgetHidden } = await chrome.storage.local.get("widgetHidden");
+  const actions = S.toolbarAction(onSejong, !!widgetHidden);
+  if (actions.includes("show")) {
+    // every Sejong tab's content.js sees the change and creates the widget, in the full view
+    await chrome.storage.local.set({ widgetHidden: false, widgetMode: "full" });
+    if (onSejong && !(await sendToFrame(tab.id, 0, { type: "widget:ping" }))) await injectContentScript(tab.id);
   }
-  sendToFrame(tab.id, 0, { type: "widget:toggle" }).then(async (answer) => {
-    if (answer) return;
+  if (actions.includes("toggle")) {
+    const answer = await sendToFrame(tab.id, 0, { type: "widget:toggle" });
     // The content script is not in this tab yet (opened before the extension was reloaded).
-    if (await injectContentScript(tab.id)) sendToFrame(tab.id, 0, { type: "widget:toggle" });
-  });
+    if (!answer && await injectContentScript(tab.id)) sendToFrame(tab.id, 0, { type: "widget:toggle" });
+  }
 });
+
+// The widget's ×: hide it on every Sejong tab and stop a running guide (as Stop does), so no
+// frame or arrow is left on any page.
+async function closeWidget() {
+  await chrome.storage.local.set({ widgetHidden: true });
+  if (S.isGuide(await getGuide())) await endGuide("stopped");
+  return true;
+}
 
 // ------------------------------------------------------------------ 1. backend
 
@@ -127,7 +142,8 @@ async function scanTab(tabId) {
 // ONE active guide for the whole browser, in chrome.storage.session, so it survives page
 // loads, this worker going to sleep, and SSO opening SJPT in a new tab. This worker is the
 // only writer; the side panel reads and watches these keys.
-//   activeGuide        { route, step, targetId, startedAt }       (S.newGuide)
+//   activeGuide        { route, step, targetId, startedAt, context }  (S.newGuide; context: indices of
+//                      steps that are headings, not clickable: passed without a click)
 //   guideView:<tabId>  { startedAt, shown, step, sejong, korOnly, injectFailed, at }  what that tab highlights now
 //                      (korOnly: index of the next step if it exists only in Korean mode, else -1;
 //                      injectFailed: a Sejong page where the content script could not be injected)
@@ -161,7 +177,7 @@ const getGuide = () => updateGuide(() => undefined);
 // tab navigates), so a page that refuses it is not hammered. → true if the injection ran.
 const CONTENT_FILES = {
   css: ["content.css"],
-  isolated: ["config.js", "shared.js", "i18n.js", "ui.js", "widget.js", "content.js"],
+  isolated: ["config.js", "shared.js", "context.js", "i18n.js", "ui.js", "widget.js", "content.js"],
   main: ["page_hook.js"],
 };
 const injectTried = new Set();
@@ -192,6 +208,7 @@ async function probeTab(tabId, route) {
     return answer ? {
       frameId: f.frameId, site: answer.site || null, lang: answer.lang || null,
       visible: answer.visible || [], hidden: answer.hidden || [], here: answer.here || [],
+      context: answer.context || [],
     } : null;
   }))).filter(Boolean);
   return { frames, probes };
@@ -213,17 +230,25 @@ async function runGuide(tabId, starting = false) {
   // Steps whose page is open in this tab are done (the library logo on the library home page:
   // clicking it would only reload the page). Checked when a guide starts and after every page
   // load or same-page navigation (#hash, history.pushState).
-  const skip = S.skipDoneSteps(guide, S.stepsOnPage(guide.route, tab && tab.url).concat(probes.flatMap((p) => p.here)));
-  if (skip.finished) { // the target page itself is open (also libseat, where nothing answers)
+  // Context steps (a heading such as 좌석 현황 around the 더보기 button): nothing to click, so the
+  // guide goes straight on to the next clickable step and never puts the frame on one.
+  // (S.planGuide: done steps, context steps, which step to highlight.)
+  const plan = S.planGuide(guide, S.stepsOnPage(guide.route, tab && tab.url), probes);
+  if (plan.finished) { // the target page itself is open (also libseat, where nothing answers)
     const ended = await endGuide("finished", { startedAt: guide.startedAt, already: starting });
     if (ended) return { active: false, finished: true };
   }
-  const pick = S.pickStep(Object.assign({}, guide, { step: skip.step }),
-    probes.flatMap((p) => p.visible).filter((i) => i > skip.done)); // never highlight a done step
+  const last = guide.route.length - 1;
+  const context = plan.context || [];
+  const pick = plan.pick || { show: -1, step: guide.step };
   const target = pick.show >= 0 ? probes.find((p) => p.visible.includes(pick.show)) : null;
-  // Save a forward jump, unless the guide was stopped or replaced while we were probing.
-  const now = await updateGuide((g) => (g && g.startedAt === guide.startedAt && pick.step > g.step
-    ? Object.assign({}, g, { step: pick.step }) : undefined));
+  // Save a forward jump and new context steps, unless the guide was stopped or replaced meanwhile.
+  const now = await updateGuide((g) => {
+    if (!g || g.startedAt !== guide.startedAt) return undefined;
+    const merged = S.mergeContext(g.context, context, last);
+    if (pick.step <= g.step && merged.length === (g.context || []).length) return undefined;
+    return Object.assign({}, g, { step: Math.max(g.step, pick.step), context: merged });
+  });
   if (!now || now.startedAt !== guide.startedAt) return { active: false };
   const korOnly = S.korOnlyStep(now, probes, pick.show);
   // The highlighted step opens another Sejong site in a new tab, and a tab of that site is
@@ -481,6 +506,8 @@ const HANDLERS = {
   "ui:tabId": (m, sender) => (sender.tab ? sender.tab.id : null),
   "ui:state": async (m, sender) => guideStateFor(sender.tab ? sender.tab.id : m.tabId),
   "ui:css": () => uiCss(),
+  "ui:arrowCss": () => arrowCssText(),
+  "widget:close": () => closeWidget(),
   "tab:open": async (m, sender) => {
     if (!sender.tab || !/^https?:\/\//i.test(String(m.url))) throw new Error(t("bad_url"));
     await chrome.tabs.update(sender.tab.id, { url: m.url });
@@ -508,6 +535,13 @@ async function uiCss() {
     uiCssText = texts.join("\n");
   }
   return { css: uiCssText };
+}
+
+// The off-screen arrow's styles (content.js puts them in the arrow's shadow root).
+let arrowCssCache = null;
+async function arrowCssText() {
+  if (arrowCssCache === null) arrowCssCache = await (await fetch(chrome.runtime.getURL("arrow.css"))).text();
+  return { css: arrowCssCache };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
