@@ -1,6 +1,8 @@
 # AI-generated — to be rewritten by me
 """Sanity checks on data/menu_map.json, its loader, and scripts/build_menu_map.py."""
+import html
 import json
+import re
 
 import pytest
 
@@ -83,6 +85,40 @@ def test_every_item_is_findable_on_the_page():
     # A selector for at least one layout, or (both null) a label the extension can match by text.
     for item in load_menu_items().values():
         assert item.selector_desktop or item.selector_mobile or item.name_ko.strip(), item.id
+
+
+def test_selectors_do_not_depend_on_the_display_language():
+    # The sites have KOR and ENG modes. A Korean attribute value in a selector (it was
+    # #gnb a[title="학사정보시스템"]) matches only in Korean mode: in English mode the step
+    # was never found. Selectors must use ids, hrefs, classes or language-free codes
+    # (SJPT's treenodevalue); the extension tells shared selectors apart by label.
+    hangul = re.compile(r"[가-힣ㄱ-ㆎ]")
+    for item in load_menu_items().values():
+        for selector in (item.selector_desktop, item.selector_mobile):
+            assert not (selector and hangul.search(selector)), f"{item.id}: {selector}"
+
+
+def test_items_sharing_a_selector_have_distinct_labels():
+    # Two items with the same selector (portal.sjpt / portal.general_admin) are told apart by
+    # their name_ko / name_en_site (extension/shared.js pickCandidate). That needs labels where
+    # neither contains the other, in both languages.
+    def key(text):
+        return " ".join(html.unescape(text or "").split()).lower()
+
+    by_selector = {}
+    for item in load_menu_items().values():
+        for selector in {item.selector_desktop, item.selector_mobile} - {None}:
+            by_selector.setdefault((item.site, selector), []).append(item)
+    shared = {sel: items for sel, items in by_selector.items() if len(items) > 1}
+    assert ("portal", '#gnb a[href*="doSsoLogin.do"]') in shared
+    for (_, selector), items in shared.items():
+        for a in items:
+            for b in items:
+                if a is b:
+                    continue
+                for x in filter(None, (key(a.name_ko), key(a.name_en_site))):
+                    for y in filter(None, (key(b.name_ko), key(b.name_en_site))):
+                        assert x not in y and y not in x, f"{selector}: {a.id} {x!r} vs {b.id} {y!r}"
 
 
 def test_old_format_with_a_single_selector_still_loads(tmp_path, monkeypatch):

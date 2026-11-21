@@ -194,11 +194,38 @@
   let guiding = false;
   let current = null; // {el, tip, index, startedAt}
 
+  // Really visible to the user, judged on the element itself, not on its parent's state:
+  //   * checkVisibility(): display:none anywhere up the tree, visibility:hidden, opacity:0,
+  //     content-visibility (Chrome 105+; the extension needs 116)
+  //   * its own box (getBoundingClientRect) is at least 1×1 px
+  //   * that box is not cut away by an ancestor with overflow:hidden/clip/auto (a closed
+  //     height:0 dropdown) or pushed off the top/left of the document (left:-9999px menus).
+  //     CSS rules: position:absolute escapes clipping ancestors below its containing block,
+  //     position:fixed escapes all of them.
   function isVisible(el) {
-    const rects = el.getClientRects();
-    if (!rects.length || rects[0].width === 0 || rects[0].height === 0) return false;
+    if (typeof el.checkVisibility === "function" &&
+        !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) return false;
     const style = getComputedStyle(el);
-    return style.visibility !== "hidden" && style.display !== "none";
+    if (style.display === "none" || style.visibility !== "visible" || parseFloat(style.opacity) === 0) return false;
+    const clips = [{ left: -scrollX, top: -scrollY, right: Infinity, bottom: Infinity }];
+    let position = style.position;
+    for (let node = el.parentElement; node && node !== document.documentElement && position !== "fixed"; node = node.parentElement) {
+      const s = getComputedStyle(node);
+      const containsAbsolute = s.position !== "static" || s.transform !== "none";
+      if (position !== "absolute" || containsAbsolute) {
+        const clipX = s.overflowX !== "visible";
+        const clipY = s.overflowY !== "visible";
+        if (clipX || clipY) {
+          const r = node.getBoundingClientRect();
+          clips.push({
+            left: clipX ? r.left : -Infinity, right: clipX ? r.right : Infinity,
+            top: clipY ? r.top : -Infinity, bottom: clipY ? r.bottom : Infinity,
+          });
+        }
+        position = s.position; // this box is now what the next ancestors must contain
+      }
+    }
+    return S.boxIsShown(el.getBoundingClientRect(), clips);
   }
 
   // The element's text as the SITE wrote it: Keep-English may have replaced Korean labels.
@@ -215,9 +242,12 @@
   // Where is this menu item in this frame?  → { el, visible } or null
   //   1. selector_desktop, then selector_mobile: the first VISIBLE match wins, so the layout
   //      decides (the desktop menu is hidden in the mobile layout and the other way round).
+  //      When a selector matches several elements, the one labelled name_ko or name_en_site
+  //      (its text or title) is picked: S.pickCandidate. Two different links that share a
+  //      selector are never confused, in KOR or ENG mode.
   //      A match that exists but is hidden (e.g. a node inside a collapsed SJPT tree branch)
   //      is returned with visible: false: the guide then highlights the nearest visible
-  //      parent step instead, and never guesses by text.
+  //      parent step instead.
   //   2. Only when the item has no selector at all: an element whose whole text is name_ko
   //      or name_en_site (entities decoded, case and spacing ignored).
   // Items of another site are never looked for (a portal label must not match on SJPT).
@@ -229,10 +259,13 @@
       for (const selector of selectors) {
         let matches = [];
         try { matches = document.querySelectorAll(selector); } catch (e) { continue; } // invalid selector
-        for (const el of matches) {
-          if (isVisible(el)) return { el, visible: true };
-          hidden = hidden || el;
-        }
+        const candidates = [...matches].map((el) => ({
+          el, text: originalText(el), title: el.getAttribute("title") || "", visible: isVisible(el),
+        }));
+        const pick = S.pickCandidate(item, candidates);
+        if (pick < 0) continue;
+        if (candidates[pick].visible) return { el: candidates[pick].el, visible: true };
+        hidden = hidden || candidates[pick].el;
       }
       return hidden ? { el: hidden, visible: false } : null;
     }
@@ -292,13 +325,21 @@
     current = null;
   }
 
+  // The label bubble sits above the element (below it if there is no room), with its arrow
+  // (CSS ::before/::after, see content.css) pointing at the middle of the element.
+  const TIP_GAP = 14; // arrow (8 px) + room for the highlight's glow
   function place() {
     if (!current) return;
     const r = current.el.getBoundingClientRect();
     const tip = current.tip;
-    const above = r.top - tip.offsetHeight - 8;
-    tip.style.top = `${above >= 4 ? above : r.bottom + 8}px`;
-    tip.style.left = `${Math.max(4, Math.min(r.left, innerWidth - tip.offsetWidth - 4))}px`;
+    const above = r.top - tip.offsetHeight - TIP_GAP;
+    const below = above < 4;
+    tip.dataset.side = below ? "below" : "above";
+    tip.style.top = `${below ? r.bottom + TIP_GAP : above}px`;
+    const left = Math.max(4, Math.min(r.left, innerWidth - tip.offsetWidth - 4));
+    tip.style.left = `${left}px`;
+    const arrow = Math.max(12, Math.min(r.left + r.width / 2 - left, tip.offsetWidth - 12));
+    tip.style.setProperty("--sejong-arrow-x", `${arrow}px`);
   }
 
   // note: an extra line under the label, e.g. that the next menu exists only in Korean mode.

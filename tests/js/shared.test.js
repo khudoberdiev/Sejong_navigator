@@ -324,6 +324,65 @@ test("selectorsFor: desktop, then mobile, then the old single selector", () => {
   eq(S.selectorsFor({ selector_desktop: null, selector_mobile: "  " }), []); // → text matching
 });
 
+// The two portal SSO links share one selector, #gnb a[href*="doSsoLogin.do"]; only their labels differ.
+const PORTAL_SJPT = { id: "portal.sjpt", name_ko: "학사정보시스템 (SJPT)", name_en_site: "Academic Information System (SJPT)" };
+const GENERAL_ADMIN = { id: "portal.general_admin", name_ko: "일반행정정보시스템", name_en_site: "General Administrative Information System" };
+const SSO_LINKS = {
+  kor: [{ text: "일반행정정보시스템", title: "", visible: true },
+        { text: "학사정보시스템", title: "학사정보시스템", visible: true }],
+  engEnglishTitle: [{ text: "General Administrative Information System", title: "", visible: true },
+                    { text: "Academic Information System", title: "Academic Information System", visible: true }],
+  engNoTitle: [{ text: "General Administrative Information System", title: "", visible: true },
+               { text: " Academic Information\n System ", title: "", visible: true }],
+};
+
+test("labelMatches: text or title, KOR or ENG, shortened labels", () => {
+  ok(S.labelMatches(PORTAL_SJPT, "학사정보시스템", ""));                     // site drops " (SJPT)"
+  ok(S.labelMatches(PORTAL_SJPT, "Academic Information System", ""));
+  ok(S.labelMatches(PORTAL_SJPT, "", "학사정보시스템"));                     // only the title says it
+  ok(S.labelMatches(PORTAL_SJPT, "ACADEMIC information system (sjpt)", ""));
+  ok(!S.labelMatches(PORTAL_SJPT, "General Administrative Information System", ""));
+  ok(!S.labelMatches(GENERAL_ADMIN, "Academic Information System", "Academic Information System"));
+  ok(!S.labelMatches(PORTAL_SJPT, "", ""));
+  ok(!S.labelMatches(PORTAL_SJPT, "S", ""));                                 // 1 letter never matches
+});
+
+test("pickCandidate finds 학사정보시스템 among the SSO links in KOR and ENG mode (bug: ENG never highlighted)", () => {
+  for (const mode of Object.keys(SSO_LINKS)) {
+    eq([mode, S.pickCandidate(PORTAL_SJPT, SSO_LINKS[mode])], [mode, 1]);
+    eq([mode, S.pickCandidate(GENERAL_ADMIN, SSO_LINKS[mode])], [mode, 0]);  // and never the other way round
+  }
+});
+
+test("pickCandidate prefers a visible labelled match, refuses to guess between different links", () => {
+  const twice = [{ text: "학사정보시스템", title: "", visible: false }, { text: "Academic Information System", title: "", visible: true }];
+  eq(S.pickCandidate(PORTAL_SJPT, twice), 1);                              // hidden mobile copy + visible desktop
+  eq(S.pickCandidate(PORTAL_SJPT, [twice[0]]), 0);                         // exists but hidden: still reported
+  const unknown = [{ text: "*Student*Information Plaza", title: "", visible: true }];
+  eq(S.pickCandidate({ name_ko: "학부생학사정보", name_en_site: "Student Information Plaza" }, unknown), 0); // one match: keep
+  const same = [{ text: "Menu", visible: false }, { text: "menu", visible: true }];
+  eq(S.pickCandidate({ name_ko: "메뉴" }, same), 1);                        // copies of one entry: keep, visible first
+  const different = [{ text: "Notices", visible: true }, { text: "Calendar", visible: true }];
+  eq(S.pickCandidate({ name_ko: "학사정보", name_en_site: "Academic Information" }, different), -1);
+  eq(S.pickCandidate(PORTAL_SJPT, []), -1);
+});
+
+test("boxIsShown: real size, clipped by overflow ancestors and the document edge", () => {
+  const box = (left, top, w, h) => ({ left, top, right: left + w, bottom: top + h, width: w, height: h });
+  ok(S.boxIsShown(box(10, 10, 100, 20), []));
+  ok(!S.boxIsShown(box(10, 10, 0, 20), []));                                // zero width
+  ok(!S.boxIsShown(null, []));
+  const closedDropdown = { left: 0, top: 50, right: 500, bottom: 50 };     // height:0; overflow:hidden
+  ok(!S.boxIsShown(box(10, 60, 100, 20), [closedDropdown]));
+  const openDropdown = { left: 0, top: 50, right: 500, bottom: 300 };
+  ok(S.boxIsShown(box(10, 60, 100, 20), [openDropdown]));
+  const onlyClipsX = { left: 0, right: 500, top: -Infinity, bottom: Infinity }; // overflow-x: hidden only
+  ok(S.boxIsShown(box(10, 900, 100, 20), [onlyClipsX]));
+  const documentEdge = { left: 0, top: 0, right: Infinity, bottom: Infinity };
+  ok(!S.boxIsShown(box(-9999, 10, 100, 20), [documentEdge]));               // left:-9999px "hidden" menu
+  ok(S.boxIsShown(box(10, 2000, 100, 20), [documentEdge]));                 // below the fold: scrollable, so visible
+});
+
 test("englishName prefers the site's own label, decoded", () => {
   eq(S.englishName({ name_en: "Academic Q&A", name_en_site: "Academic Affairs Q&#38;A" }), "Academic Affairs Q&A");
   eq(S.englishName({ name_en: "Classes", name_en_site: null }), "Classes");

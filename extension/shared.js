@@ -276,6 +276,49 @@
       .filter((s) => typeof s === "string" && s.trim());
   }
 
+  // Is an element (its own text, its title attribute) labelled as this item, in KOR or ENG mode?
+  // Compared with labelKey against name_ko and name_en_site; one may contain the other, because
+  // the site sometimes shortens a label ("Academic Information System" for
+  // "Academic Information System (SJPT)", title "학사정보시스템" for "학사정보시스템 (SJPT)").
+  function labelMatches(item, text, title) {
+    const shown = [labelKey(text), labelKey(title)].filter((s) => s.length >= 2);
+    return siteNames(item).some((n) => n.length >= 2 &&
+      shown.some((s) => s === n || s.indexOf(n) >= 0 || n.indexOf(s) >= 0));
+  }
+
+  // A selector matched these elements (DOM order): [{text, title, visible}]. Which one is the item?
+  //   1. Elements whose label matches the item (labelMatches); a visible one first. This is what
+  //      separates two links that share a selector, e.g. 학사정보시스템 and 일반행정정보시스템
+  //      (both #gnb a[href*="doSsoLogin.do"]), in Korean and in English mode alike.
+  //   2. No label matches: the matches are kept only if they are all the same entry (same text),
+  //      because the site may show a label we did not record. Different labels: ambiguous.
+  //   → index into candidates, or -1 (never guess between two different links)
+  function pickCandidate(item, candidates) {
+    const list = candidates || [];
+    const all = list.map((_, i) => i);
+    let pool = all.filter((i) => labelMatches(item, list[i].text, list[i].title));
+    if (!pool.length) {
+      const texts = list.map((c) => labelKey(c.text));
+      pool = texts.every((t) => t === texts[0]) ? all : [];
+    }
+    const visible = pool.filter((i) => list[i].visible);
+    return visible.length ? visible[0] : pool.length ? pool[0] : -1;
+  }
+
+  // Is a box really on the page? rect: the element's getBoundingClientRect(); clips: the boxes
+  // it must stay inside (ancestors that clip overflow, the top/left edge of the document). Each
+  // clip may leave a side open (±Infinity). Hidden if what is left is smaller than 1×1 px.
+  function boxIsShown(rect, clips) {
+    if (!rect || !(rect.width >= 1) || !(rect.height >= 1)) return false;
+    let left = rect.left, top = rect.top, right = rect.right, bottom = rect.bottom;
+    for (const c of clips || []) {
+      left = Math.max(left, c.left); top = Math.max(top, c.top);
+      right = Math.min(right, c.right); bottom = Math.min(bottom, c.bottom);
+      if (right - left < 1 || bottom - top < 1) return false;
+    }
+    return true;
+  }
+
   // English label for breadcrumbs and the pointer: the site's own English label if it has one.
   function englishName(item) {
     return cleanLabel(decodeEntities((item && (item.name_en_site || item.name_en)) || ""));
@@ -429,7 +472,7 @@
     SITES, siteForHost, rootId, isRootId, cleanLabel, hasHangul, isSafeLabel, sanitizeUrl,
     stableId, newStore, applyClick, applyScan, undo, deleteItem, displayName, listForReview,
     toMenuMap, mergeMenuMap,
-    decodeEntities, labelKey, siteNames, selectorsFor, englishName,
+    decodeEntities, labelKey, siteNames, selectorsFor, labelMatches, pickCandidate, boxIsShown, englishName,
     newGuide, isGuide, pickStep, advanceGuide, KOR_ONLY_NOTE, korOnlyStep, guideStatus,
   });
 })(globalThis);

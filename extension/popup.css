@@ -7,6 +7,9 @@
   --hover: #f3f4f6;
   --accent: #c3002f;
   --accent-fg: #ffffff;
+  /* The guide's orange, same family as the on-page highlight (content.css). As text on white,
+     #D97757 is only 3.1:1, so light mode uses the deeper #B4532F (5.0:1). */
+  --guide: #b4532f;
   --warn-bg: #fff8c5;
   color-scheme: light dark;
 }
@@ -17,6 +20,7 @@
     --muted: #9198a1;
     --line: #3d444d;
     --hover: #262a31;
+    --guide: #d97757; /* 5.3:1 on the dark background */
     --warn-bg: #3b2e00;
   }
 }
@@ -89,7 +93,8 @@ button.danger { color: var(--accent); }
 .crumbs li:not(:last-child)::after { content: "›"; color: var(--muted); margin: 0 6px; }
 .crumbs .crumb { display: flex; flex-direction: column; }
 .crumbs .crumb .en { color: var(--muted); font-size: 11px; }
-.crumbs li.current .crumb { color: var(--accent); font-weight: 600; }
+.crumbs li.current .crumb { color: var(--guide); font-weight: 600; }
+.crumbs li.current .crumb .en { color: var(--guide); }
 .crumbs li.done .crumb { color: var(--muted); text-decoration: line-through; }
 .crumbs.small { font-size: 12px; min-height: 18px; }
 
