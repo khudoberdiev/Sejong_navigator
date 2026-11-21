@@ -7,14 +7,45 @@
 //      and advances the step when the user clicks the highlight.
 //   4. Serves the Korean → English label pairs for Keep-English.
 //   5. Relays pop-ups found in any frame to the top frame; optional self-hosted translation.
-importScripts("config.js", "shared.js");
+//   6. Serves the UI: the floating widget's state, styles and messages; Display setting.
+importScripts("config.js", "shared.js", "i18n.js");
 
 const { BACKEND_URL } = self.SEJONG_CONFIG;
 const S = self.SejongShared;
+const I = self.SejongI18n;
+const t = (key, subs) => I.t(key, subs);
+I.init().catch(() => {});
 
-// The UI (popup.html) lives in Chrome's side panel, so it stays open while you click the page.
-// The toolbar icon opens/closes it. Calling this again on every worker start is harmless.
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+// The floating widget (a content script) re-renders on guide changes, so it may watch
+// chrome.storage.session. Only this extension's own scripts get access, never the page.
+// background.js stays the ONLY writer; every write waits for this first.
+const sessionReady = chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" }).catch(() => {});
+
+// Settings → Display: "widget" (default: the floating widget on Sejong pages) or "panel"
+// (Chrome's side panel). With the panel, the toolbar icon opens it; with the widget, the
+// toolbar icon shows/hides the widget on a Sejong tab and opens the panel anywhere else.
+async function applyDisplay() {
+  const { display } = await chrome.storage.local.get("display");
+  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: display === "panel" }).catch(() => {});
+}
+applyDisplay();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.display) applyDisplay();
+});
+
+// Fires only in widget mode (in panel mode Chrome opens the panel itself).
+chrome.action.onClicked.addListener((tab) => {
+  const sejong = /^https?:\/\/([^/?#:]+)/i.exec(tab.url || "");
+  if (!sejong || !S.siteForHost(sejong[1])) {
+    chrome.sidePanel.open({ tabId: tab.id }).catch(() => {}); // called right away: still a user gesture
+    return;
+  }
+  sendToFrame(tab.id, 0, { type: "widget:toggle" }).then(async (answer) => {
+    if (answer) return;
+    // The content script is not in this tab yet (opened before the extension was reloaded).
+    if (await injectContentScript(tab.id)) sendToFrame(tab.id, 0, { type: "widget:toggle" });
+  });
+});
 
 // ------------------------------------------------------------------ 1. backend
 
@@ -24,10 +55,10 @@ async function apiGet(path, params) {
   try {
     res = await fetch(url);
   } catch (e) {
-    throw new Error(`Backend not reachable at ${BACKEND_URL}. Is the server running?`);
+    throw new Error(t("backend_unreachable", [BACKEND_URL]));
   }
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((body && body.detail) || `HTTP ${res.status}`);
+  if (!res.ok) throw new Error((body && body.detail) || t("http_error", [res.status]));
   return body;
 }
 
@@ -109,6 +140,7 @@ let guideQueue = Promise.resolve();
 // change(guide) returns the new guide, null to delete it, or undefined to keep it as is.
 function updateGuide(change) {
   const run = guideQueue.then(async () => {
+    await sessionReady;
     const before = (await chrome.storage.session.get(GUIDE))[GUIDE] || null;
     const after = change(before);
     if (after === undefined) return before;
@@ -125,7 +157,11 @@ const getGuide = () => updateGuide(() => undefined);
 // installed or reloaded: Chrome injects manifest content scripts only into pages loaded later.
 // Inject the same files now (all frames). Tried once per page load (injectTried, cleared when the
 // tab navigates), so a page that refuses it is not hammered. → true if the injection ran.
-const CONTENT_FILES = { css: ["content.css"], isolated: ["shared.js", "content.js"], main: ["page_hook.js"] };
+const CONTENT_FILES = {
+  css: ["content.css"],
+  isolated: ["config.js", "shared.js", "i18n.js", "ui.js", "widget.js", "content.js"],
+  main: ["page_hook.js"],
+};
 const injectTried = new Set();
 chrome.webNavigation.onCommitted.addListener(({ tabId, frameId }) => { if (frameId === 0) injectTried.delete(tabId); });
 
@@ -212,7 +248,7 @@ async function clearGuideEverywhere() {
 
 async function startGuide(tabId, path, targetId) {
   const guide = S.newGuide(path, targetId, Date.now());
-  if (!S.isGuide(guide)) throw new Error("This item has no click path to follow.");
+  if (!S.isGuide(guide)) throw new Error(t("no_path_to_follow"));
   await updateGuide(() => null);
   await clearGuideEverywhere();
   await chrome.storage.session.remove("guideLast");
@@ -289,7 +325,7 @@ async function translateLibre(text) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ q: text, source: "ko", target: "en", format: "text" }),
   });
-  if (!res.ok) throw new Error(`LibreTranslate: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(t("libretranslate_error", [res.status]));
   return (await res.json()).translatedText || null;
 }
 
@@ -319,7 +355,8 @@ const HANDLERS = {
   "rec:export": () => withStore((store) => S.toMenuMap(store)),
   "rec:import": (m) => withStore((store) => S.mergeMenuMap(store, m.json).length),
 
-  "guide:start": (m) => startGuide(m.tabId, m.path, m.targetId),
+  // From the panel ({tabId}: the active tab) or the widget (no tabId: the widget's own tab).
+  "guide:start": (m, sender) => startGuide(m.tabId !== undefined ? m.tabId : sender.tab && sender.tab.id, m.path, m.targetId),
   "guide:stop": () => endGuide("stopped"),
   "guide:clicked": (m, sender) => guideClicked(m, sender),
   // From a content script (page or frame loaded, click) or from the panel ({tabId}).
@@ -335,7 +372,37 @@ const HANDLERS = {
     return true;
   },
   "translate:libre": (m) => translateLibre(m.text),
+
+  // ---- the floating widget (a content script: it cannot read extension files itself)
+  "ui:tabId": (m, sender) => (sender.tab ? sender.tab.id : null),
+  "ui:state": async (m, sender) => guideStateFor(sender.tab ? sender.tab.id : m.tabId),
+  "ui:css": () => uiCss(),
+  "tab:open": async (m, sender) => {
+    if (!sender.tab || !/^https?:\/\//i.test(String(m.url))) throw new Error(t("bad_url"));
+    await chrome.tabs.update(sender.tab.id, { url: m.url });
+    return true;
+  },
+  "i18n:messages": (m) => I.loadMessages(m.code),
+  "i18n:languages": () => I.listLanguages(),
 };
+
+// What the UI renders for one tab: the guide (the same in every tab), how it finished last
+// time, and what THIS tab shows (its guideView).
+async function guideStateFor(tabId) {
+  const keys = [GUIDE, "guideLast"].concat(tabId === undefined || tabId === null ? [] : [viewKey(tabId)]);
+  const s = await chrome.storage.session.get(keys);
+  return { guide: S.isGuide(s[GUIDE]) ? s[GUIDE] : null, last: s.guideLast || null, view: s[viewKey(tabId)] || null };
+}
+
+// The widget's styles, read from the extension's files (they are not web-accessible).
+let uiCssText = null;
+async function uiCss() {
+  if (uiCssText === null) {
+    const texts = await Promise.all(["ui.css", "widget.css"].map(async (file) => (await fetch(chrome.runtime.getURL(file))).text()));
+    uiCssText = texts.join("\n");
+  }
+  return { css: uiCssText };
+}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handler = HANDLERS[msg && msg.type];

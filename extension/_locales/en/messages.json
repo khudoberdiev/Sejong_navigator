@@ -1,0 +1,507 @@
+{
+  "ext_name": {
+    "message": "Sejong Navigator",
+    "description": "Extension name (toolbar, panel, widget title)."
+  },
+  "ext_description": {
+    "message": "AI-generated — to be rewritten by me. Find pages on Sejong University websites, record their menus, read them in English.",
+    "description": "Chrome Web Store / chrome://extensions description."
+  },
+  "language_name": {
+    "message": "English",
+    "description": "This language's own name, shown in Settings → UI language."
+  },
+  "tab_search": {
+    "message": "Search",
+    "description": "Side panel tab."
+  },
+  "tab_record": {
+    "message": "Record menu",
+    "description": "Side panel tab."
+  },
+  "close_panel": {
+    "message": "Close panel",
+    "description": "Side panel close button (tooltip)."
+  },
+  "close": {
+    "message": "Close",
+    "description": "Close button of the translation overlay (tooltip)."
+  },
+  "no_answer": {
+    "message": "No answer from the extension.",
+    "description": "Internal error: background script did not answer."
+  },
+  "search_placeholder": {
+    "message": "baholarim qayerda? · where are my grades? · 성적 조회",
+    "description": "Search box placeholder: example questions in Uzbek, English, Korean. Keep the examples."
+  },
+  "search_label": {
+    "message": "Search Sejong menus",
+    "description": "Search box (screen readers)."
+  },
+  "searching": {
+    "message": "Searching…"
+  },
+  "no_match": {
+    "message": "No match."
+  },
+  "score": {
+    "message": "score $score$",
+    "description": "Search result relevance, e.g. 'score 0.91'.",
+    "placeholders": {
+      "score": {
+        "content": "$1"
+      }
+    }
+  },
+  "click_path": {
+    "message": "Click path",
+    "description": "Heading above the breadcrumbs."
+  },
+  "show_me": {
+    "message": "Show me on this page",
+    "description": "Starts the on-page guide."
+  },
+  "stop": {
+    "message": "Stop",
+    "description": "Stops the guide."
+  },
+  "open_item": {
+    "message": "Open $name$",
+    "description": "Opens a menu item's page in this tab.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "backend_error": {
+    "message": "$error$ Start it with: .venv/bin/uvicorn api.main:app --port 8000 (or change BACKEND_URL in config.js; now $url$).",
+    "description": "The search server is not running.",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      },
+      "url": {
+        "content": "$2"
+      }
+    }
+  },
+  "cannot_guide": {
+    "message": "Cannot guide on this tab ($error$). Open a Sejong page first.",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      }
+    }
+  },
+  "step_of": {
+    "message": "Step $step$ of $total$",
+    "description": "Used inside other status messages.",
+    "placeholders": {
+      "step": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "status_here": {
+    "message": "You are there: “$name$” is highlighted. Click it to finish.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "status_next": {
+    "message": "Step $step$ of $total$: click the highlighted “$name$”.",
+    "placeholders": {
+      "step": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "name": {
+        "content": "$3"
+      }
+    }
+  },
+  "status_hint": {
+    "message": "$step_of$: open “$shown$” first (highlighted), then click “$next$”.",
+    "description": "step_of is the 'Step X of Y' text.",
+    "placeholders": {
+      "step_of": {
+        "content": "$1"
+      },
+      "shown": {
+        "content": "$2"
+      },
+      "next": {
+        "content": "$3"
+      }
+    }
+  },
+  "status_kor_only": {
+    "message": "$kor_only$. Switch the site to KOR, then look for “$name$”.",
+    "description": "kor_only is the kor_only message.",
+    "placeholders": {
+      "kor_only": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      }
+    }
+  },
+  "status_missing": {
+    "message": "$step_of$: “$name$” is not visible on this page yet.",
+    "placeholders": {
+      "step_of": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      }
+    }
+  },
+  "status_reload": {
+    "message": "$reload$ ($step_of$: “$name$”.)",
+    "description": "reload is the reload_page message.",
+    "placeholders": {
+      "reload": {
+        "content": "$1"
+      },
+      "step_of": {
+        "content": "$2"
+      },
+      "name": {
+        "content": "$3"
+      }
+    }
+  },
+  "status_other_tab": {
+    "message": "$step_of$: “$name$”. This tab is not a Sejong page; switch to the Sejong tab.",
+    "placeholders": {
+      "step_of": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      }
+    }
+  },
+  "status_pending": {
+    "message": "$step_of$: “$name$”. Checking this tab…",
+    "placeholders": {
+      "step_of": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      }
+    }
+  },
+  "hint_new_tab": {
+    "message": "It opens in a new tab; the guide continues there.",
+    "description": "Appended to a status line."
+  },
+  "hint_path_note": {
+    "message": "Path: $note$",
+    "description": "Recorded hint on how to reach the menu (not translated: it comes from the data).",
+    "placeholders": {
+      "note": {
+        "content": "$1"
+      }
+    }
+  },
+  "kor_only": {
+    "message": "This menu only appears in Korean mode (KOR)",
+    "description": "Shown when an SJPT menu has no English-mode version."
+  },
+  "reload_page": {
+    "message": "Reload this page (Cmd+R) to start the guide.",
+    "description": "The extension could not start on an already-open tab."
+  },
+  "no_click_path": {
+    "message": "No click path to this item."
+  },
+  "other_guide_running": {
+    "message": "A guide to “$name$” is running. “Show me” replaces it.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guide_done": {
+    "message": "Done: you reached “$name$”.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "guide_stopped": {
+    "message": "Guide stopped."
+  },
+  "settings": {
+    "message": "Settings"
+  },
+  "setting_keep_english": {
+    "message": "Keep English menu labels on Sejong sites"
+  },
+  "setting_translate_popups": {
+    "message": "Translate Korean pop-ups to English (on this computer)"
+  },
+  "settings_reload_note": {
+    "message": "Reload the Sejong tab after changing these two."
+  },
+  "setting_display": {
+    "message": "Display:",
+    "description": "Label of the Display choice."
+  },
+  "display_widget": {
+    "message": "Floating widget (default)",
+    "description": "Display choice."
+  },
+  "display_panel": {
+    "message": "Side panel",
+    "description": "Display choice."
+  },
+  "display_widget_hint": {
+    "message": "The widget appears on Sejong pages. The toolbar icon shows or hides it."
+  },
+  "display_panel_hint": {
+    "message": "Click the Sejong Navigator toolbar icon to open the side panel."
+  },
+  "setting_ui_language": {
+    "message": "UI language:",
+    "description": "Label of the UI language choice."
+  },
+  "ui_language_auto": {
+    "message": "Auto (browser language)",
+    "description": "UI language choice: follow Chrome's language."
+  },
+  "widget_expand": {
+    "message": "Open Sejong Navigator",
+    "description": "The mini pill (tooltip)."
+  },
+  "widget_to_mini": {
+    "message": "Minimize",
+    "description": "Widget button: compact → mini."
+  },
+  "widget_to_compact": {
+    "message": "Show only the click path",
+    "description": "Widget button: full → compact."
+  },
+  "widget_to_full": {
+    "message": "Show everything",
+    "description": "Widget button: compact → full."
+  },
+  "widget_drag": {
+    "message": "Drag to move",
+    "description": "Widget header (tooltip)."
+  },
+  "no_guide_running": {
+    "message": "No guide is running. Press + to search.",
+    "description": "Compact widget without a guide."
+  },
+  "backend_unreachable": {
+    "message": "Backend not reachable at $url$. Is the server running?",
+    "placeholders": {
+      "url": {
+        "content": "$1"
+      }
+    }
+  },
+  "http_error": {
+    "message": "HTTP $status$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "no_path_to_follow": {
+    "message": "This item has no click path to follow."
+  },
+  "libretranslate_error": {
+    "message": "LibreTranslate: HTTP $status$",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "bad_url": {
+    "message": "Only http and https links can be opened."
+  },
+  "popup_title_popup": {
+    "message": "English · pop-up",
+    "description": "Overlay title for a translated pop-up window."
+  },
+  "popup_title_dialog": {
+    "message": "English · last $kind$()",
+    "description": "kind is alert, confirm or prompt (code: do not translate).",
+    "placeholders": {
+      "kind": {
+        "content": "$1"
+      }
+    }
+  },
+  "popup_title_engine": {
+    "message": "$title$ · $engine$",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "engine": {
+        "content": "$2"
+      }
+    }
+  },
+  "popup_original": {
+    "message": "Original (한국어)",
+    "description": "Shows the Korean original."
+  },
+  "translating": {
+    "message": "Translating…"
+  },
+  "engine_chrome": {
+    "message": "Chrome on-device translator"
+  },
+  "engine_libre": {
+    "message": "LibreTranslate (self-hosted)"
+  },
+  "translator_needs_download": {
+    "message": "Chrome can translate Korean on this computer, but needs a one-time download (~ tens of MB). Nothing is sent to a server."
+  },
+  "download_translator": {
+    "message": "Download translator"
+  },
+  "downloading": {
+    "message": "Downloading… $percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "download_failed": {
+    "message": "Download failed: $error$",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      }
+    }
+  },
+  "no_translator": {
+    "message": "No translator available. Use Chrome 138+ (built-in on-device translator) or start a self-hosted LibreTranslate and set TRANSLATE_URL in config.js."
+  },
+  "rec_intro": {
+    "message": "Records ONLY menu labels, links/selectors and nesting on the Portal, SJPT, e-Campus and Library sites. Never page content, grades, names or student IDs."
+  },
+  "rec_start": {
+    "message": "Start recording clicks"
+  },
+  "rec_stop": {
+    "message": "Stop recording clicks"
+  },
+  "rec_scan": {
+    "message": "Scan menus on this page"
+  },
+  "rec_new_path": {
+    "message": "New path"
+  },
+  "rec_undo": {
+    "message": "Undo last"
+  },
+  "rec_next_child": {
+    "message": "Next click becomes a child of:"
+  },
+  "rec_count": {
+    "message": "$count$ recorded items",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rec_site_root": {
+    "message": "site root (new path)"
+  },
+  "rec_delete_item": {
+    "message": "Delete this item and everything below it"
+  },
+  "rec_empty": {
+    "message": "Nothing recorded yet."
+  },
+  "rec_export": {
+    "message": "Export JSON"
+  },
+  "rec_import": {
+    "message": "Import JSON"
+  },
+  "rec_clear": {
+    "message": "Clear all"
+  },
+  "rec_clear_confirm": {
+    "message": "Delete ALL recorded items? Export first if you want to keep them."
+  },
+  "rec_stopped": {
+    "message": "Recording stopped."
+  },
+  "rec_recording": {
+    "message": "Recording. Click through the menu on the page, from the top level down to the page you want."
+  },
+  "rec_scanning": {
+    "message": "Scanning…"
+  },
+  "rec_scanned": {
+    "message": "Scanned $frames$ frame(s): $created$ new item(s).",
+    "placeholders": {
+      "frames": {
+        "content": "$1"
+      },
+      "created": {
+        "content": "$2"
+      }
+    }
+  },
+  "rec_no_sejong_page": {
+    "message": "No Sejong page in this tab (or reload the page once after installing the extension)."
+  },
+  "rec_new_path_done": {
+    "message": "New path: the next click hangs under the site root."
+  },
+  "rec_exported": {
+    "message": "Exported $count$ items (site roots included).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "rec_imported": {
+    "message": "Imported $file$: $count$ new item(s) merged.",
+    "placeholders": {
+      "file": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "rec_import_failed": {
+    "message": "Import failed: $error$",
+    "placeholders": {
+      "error": {
+        "content": "$1"
+      }
+    }
+  }
+}

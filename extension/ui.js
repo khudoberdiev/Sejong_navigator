@@ -1,0 +1,311 @@
+// AI-generated — to be rewritten by me
+// The guide UI: search box with suggestions → top results → click path (breadcrumbs, Korean +
+// English) → "Show me on this page" / Stop / Open → status line → Settings.
+// ONE implementation, mounted in two places:
+//   * the side panel (popup.html / popup.js)
+//   * the floating widget's FULL view (widget.js, inside a closed Shadow DOM on Sejong pages)
+// It never reads the page. It only renders the guide state that background.js (the single
+// writer of chrome.storage.session) keeps, and sends messages; the adapter says how:
+//   adapter = {
+//     send(msg)      → answer data (throws on {ok:false})
+//     getState()     → {guide, last, view} for the tab this UI is about
+//     tabId()        → that tab's id (undefined: background uses the sender's tab)
+//     openUrl(url)   → navigate that tab
+//     onGuideStarted() optional: the widget switches to its compact view
+//   }
+// All text comes from SejongI18n (_locales/*/messages.json); menu names stay Korean + English.
+(function (root) {
+  "use strict";
+
+  const S = root.SejongShared;
+  const I = root.SejongI18n;
+  const CONFIG = root.SEJONG_CONFIG;
+  const t = (key, subs) => I.t(key, subs);
+
+  function el(tag, attrs, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs || {})) {
+      if (value === null || value === undefined || value === false) continue;
+      if (key === "class") node.className = value;
+      else if (key === "text") node.textContent = value;
+      else node.setAttribute(key, value === true ? "" : value);
+    }
+    node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
+    return node;
+  }
+
+  function renderCrumbs(ol, route, highlightIndex, doneBefore) {
+    ol.replaceChildren(...S.crumbsModel(route, highlightIndex, doneBefore).map((c) =>
+      el("li", { class: c.state },
+        el("span", { class: "crumb" }, el("span", { text: c.ko }), c.en ? el("span", { class: "en", text: c.en }) : null))));
+  }
+
+  function mount(container, adapter) {
+    // ---- model: survives a rebuild (UI language change)
+    const model = { query: "", results: null, chosen: -1, searching: false, path: [], targetId: null, error: "" };
+    const settings = { keepEnglish: true, translatePopups: true, display: "widget", uiLanguage: "auto" };
+    let languages = [];
+    let parts = null;
+    let destroyed = false;
+
+    function showError(error) {
+      model.error = t("backend_error", [error.message, CONFIG.BACKEND_URL]);
+      parts.error.hidden = false;
+      parts.error.textContent = model.error;
+    }
+
+    // ---------------------------------------------------------------- build (all text here)
+
+    function build() {
+      const q = el("input", { class: "q", type: "search", autocomplete: "off", placeholder: t("search_placeholder"),
+        "aria-label": t("search_label") });
+      q.value = model.query;
+      const suggestions = el("ul", { class: "suggestions", hidden: true });
+      const results = el("ol", { class: "results" });
+      const crumbs = el("ol", { class: "crumbs" });
+      const start = el("button", { class: "primary", text: t("show_me") });
+      const open = el("button", { hidden: true });
+      const stop = el("button", { text: t("stop") });
+      const status = el("p", { class: "muted status", "aria-live": "polite" });
+      const route = el("div", { class: "route", hidden: true },
+        el("h3", { text: t("click_path") }), crumbs, el("div", { class: "row" }, start, open, stop), status);
+      const error = el("p", { class: "banner", hidden: !model.error, text: model.error });
+
+      const checkbox = (key, label) => {
+        const input = el("input", { type: "checkbox" });
+        input.checked = settings[key] !== false;
+        input.addEventListener("change", () => chrome.storage.local.set({ [key]: input.checked }));
+        return el("label", {}, input, " " + label);
+      };
+      const select = (key, options, label) => {
+        const input = el("select", { "aria-label": label },
+          ...options.map(([value, text]) => el("option", { value, text, selected: settings[key] === value })));
+        input.addEventListener("change", () => chrome.storage.local.set({ [key]: input.value }));
+        return el("label", {}, label + " ", input);
+      };
+      const displayHint = el("p", { class: "muted", text: settings.display === "panel" ? t("display_panel_hint") : t("display_widget_hint") });
+      const settingsBox = el("details", { class: "settings" },
+        el("summary", { text: t("settings") }),
+        checkbox("keepEnglish", t("setting_keep_english")),
+        checkbox("translatePopups", t("setting_translate_popups")),
+        el("p", { class: "muted", text: t("settings_reload_note") }),
+        select("display", [["widget", t("display_widget")], ["panel", t("display_panel")]], t("setting_display")),
+        displayHint,
+        select("uiLanguage", [["auto", t("ui_language_auto")], ...languages.map((l) => [l.code, l.name])], t("setting_ui_language")));
+
+      container.replaceChildren(error, el("div", { class: "search-box" }, q, suggestions), results, route, settingsBox);
+      parts = { q, suggestions, results, route, crumbs, start, open, stop, status, error };
+      wire();
+      renderResults();
+      renderGuide();
+    }
+
+    // ---------------------------------------------------------------- suggestions
+
+    let suggestTimer = null;
+    let suggestToken = 0;
+    let active = -1;
+    function hideSuggestions() { parts.suggestions.hidden = true; active = -1; }
+
+    async function updateSuggestions() {
+      const prefix = parts.q.value.trim();
+      const token = ++suggestToken;
+      if (!prefix) return hideSuggestions();
+      try {
+        const list = await adapter.send({ type: "api:suggest", prefix });
+        if (token !== suggestToken || destroyed) return; // a newer keystroke already answered
+        parts.suggestions.replaceChildren(...list.map((text) => {
+          const li = el("li", { text });
+          li.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            parts.q.value = text;
+            hideSuggestions();
+            runSearch(text);
+          });
+          return li;
+        }));
+        parts.suggestions.hidden = list.length === 0;
+        active = -1;
+      } catch (e) {
+        showError(e);
+      }
+    }
+
+    function wire() {
+      const { q } = parts;
+      q.addEventListener("input", () => {
+        model.query = q.value;
+        clearTimeout(suggestTimer);
+        suggestTimer = setTimeout(updateSuggestions, 150);
+      });
+      q.addEventListener("keydown", (e) => {
+        const items = [...parts.suggestions.children];
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !parts.suggestions.hidden && items.length) {
+          e.preventDefault();
+          active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+          items.forEach((li, i) => li.classList.toggle("active", i === active));
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (active >= 0 && items[active]) q.value = items[active].textContent;
+          hideSuggestions();
+          runSearch(q.value);
+        }
+        if (e.key === "Escape") hideSuggestions();
+      });
+      q.addEventListener("blur", () => setTimeout(() => !destroyed && hideSuggestions(), 100));
+
+      parts.start.addEventListener("click", async () => {
+        if (model.path.length < 2) return;
+        try {
+          await adapter.send({ type: "guide:start", tabId: await adapter.tabId(), path: model.path, targetId: model.targetId });
+        } catch (e) {
+          parts.status.textContent = t("cannot_guide", [e.message]);
+          return;
+        }
+        if (adapter.onGuideStarted) adapter.onGuideStarted();
+        renderGuide();
+      });
+      parts.stop.addEventListener("click", async () => {
+        await adapter.send({ type: "guide:stop" }).catch(() => {});
+        renderGuide();
+      });
+    }
+
+    // ---------------------------------------------------------------- results and route
+
+    async function runSearch(text) {
+      if (!text.trim()) return;
+      model.query = text;
+      model.searching = true;
+      model.results = null;
+      parts.route.hidden = true;
+      renderResults();
+      try {
+        model.results = await adapter.send({ type: "api:search", query: text, k: CONFIG.SEARCH_K });
+        model.error = "";
+        parts.error.hidden = true;
+      } catch (e) {
+        model.results = [];
+        showError(e);
+      }
+      model.searching = false;
+      if (destroyed) return;
+      renderResults();
+      if (model.results.length) choose(0); // show the path of the best result right away
+    }
+
+    function renderResults() {
+      const ol = parts.results;
+      if (model.searching) return ol.replaceChildren(el("li", { class: "muted", text: t("searching") }));
+      if (model.results === null) return ol.replaceChildren();
+      if (!model.results.length) return ol.replaceChildren(model.error ? "" : el("li", { class: "muted", text: t("no_match") }));
+      ol.replaceChildren(...model.results.map((item, i) => {
+        const english = S.englishName(item);
+        const li = el("li", { class: i === model.chosen ? "chosen" : "" },
+          el("div", { class: "ko", text: item.name_ko || english }),
+          english && item.name_ko ? el("div", { text: english }) : null,
+          el("div", { class: "meta" }, el("span", { class: "site", text: item.site }),
+            el("span", { text: t("score", [item.score.toFixed(2)]) })));
+        li.addEventListener("click", () => choose(i));
+        return li;
+      }));
+    }
+
+    async function choose(i) {
+      model.chosen = i;
+      renderResults();
+      const item = model.results[i];
+      try {
+        // route() returns the full items: names for the breadcrumbs, selectors/names for the guide
+        model.path = await adapter.send({ type: "api:route", from: CONFIG.ROOT_ID, to: item.id });
+        model.targetId = item.id;
+        renderGuide();
+      } catch (e) {
+        showError(e);
+      }
+    }
+
+    function offerOpen(route) {
+      // Nothing from the path is visible here: offer the deepest step that has a URL.
+      const withUrl = [...route].reverse().find((s) => s.url);
+      if (!withUrl) return;
+      parts.open.hidden = false;
+      parts.open.textContent = t("open_item", [S.nameOf(withUrl)]);
+      parts.open.onclick = async () => {
+        await adapter.openUrl(withUrl.url); // the guide continues on the new page by itself
+        parts.open.hidden = true;
+      };
+    }
+
+    // ---------------------------------------------------------------- guide (state lives in storage)
+
+    let renderToken = 0;
+    async function renderGuide() {
+      const token = ++renderToken;
+      let state;
+      try { state = await adapter.getState(); } catch (e) { return; }
+      if (token !== renderToken || destroyed || !parts) return; // a newer render is on its way
+      const { guide, last, view } = state || {};
+      if (guide && !model.targetId) { // just opened: restore the running guide
+        model.path = guide.route;
+        model.targetId = guide.targetId;
+      }
+      parts.open.hidden = true;
+      if (!model.path.length) { parts.route.hidden = true; return; }
+      parts.route.hidden = false;
+
+      const following = !!guide && guide.targetId === model.targetId;
+      parts.start.hidden = following;
+      parts.stop.hidden = !following;
+      if (following) {
+        const info = S.guideStatus(guide, view);
+        renderCrumbs(parts.crumbs, guide.route, info.index, guide.step);
+        parts.status.textContent = S.guideMessage(guide, info, t);
+        if (info.kind === "missing" || info.kind === "other-tab") offerOpen(guide.route);
+        return;
+      }
+      renderCrumbs(parts.crumbs, model.path);
+      parts.status.textContent = S.idleMessage(model.path, model.targetId, guide, last, t);
+    }
+
+    // ---------------------------------------------------------------- settings and language
+
+    const onSettings = (changes, area) => {
+      if (area !== "local" || destroyed) return;
+      let rebuild = false;
+      for (const key of Object.keys(settings)) {
+        if (changes[key] && key !== "uiLanguage") { settings[key] = changes[key].newValue; rebuild = true; }
+      }
+      if (rebuild) build();
+    };
+    chrome.storage.onChanged.addListener(onSettings);
+    I.onChange(() => { if (!destroyed) { settings.uiLanguage = I.language(); build(); } });
+
+    (async () => {
+      const stored = await chrome.storage.local.get(Object.keys(settings)).catch(() => ({}));
+      settings.keepEnglish = stored.keepEnglish !== false;
+      settings.translatePopups = stored.translatePopups !== false;
+      settings.display = stored.display === "panel" ? "panel" : "widget";
+      settings.uiLanguage = stored.uiLanguage || "auto";
+      languages = await I.listLanguages().catch(() => []);
+      if (!destroyed) build();
+    })();
+
+    build();
+    adapter.send({ type: "api:health" }).catch((e) => !destroyed && showError(e));
+
+    return {
+      refresh: () => renderGuide(),
+      focus: () => parts && parts.q.focus(),
+      destroy: () => {
+        destroyed = true;
+        chrome.storage.onChanged.removeListener(onSettings);
+        container.replaceChildren();
+      },
+    };
+  }
+
+  root.SejongUI = Object.freeze({ mount, renderCrumbs, el });
+})(globalThis);

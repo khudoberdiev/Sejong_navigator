@@ -468,5 +468,137 @@ test("a collapsed SJPT branch: the nearest visible parent step is highlighted un
   eq(S.pickStep(g, [2, 3, 4]), { show: 4, step: 4 });
 });
 
+// ------------------------------------------------------------------ UI text (i18n)
+// EN_MESSAGES = extension/_locales/en/messages.json, USED_KEYS = every key the code uses
+// (both injected by tests/test_extension_js.py).
+
+const T = S.makeTranslator(EN_MESSAGES); // strict: a missing key throws
+
+test("every UI string key used by the code exists in English messages.json", () => {
+  ok(USED_KEYS.length > 50, "the key scan found almost nothing");
+  const missing = USED_KEYS.filter((key) => !EN_MESSAGES[key]);
+  eq(missing, []);
+  for (const key of USED_KEYS) ok(T(key, ["A", "B", "C"]).trim(), `${key} is empty`);
+});
+
+test("formatMessage follows Chrome's placeholder rules", () => {
+  const entry = { message: "Step $step$ of $total$ costs $$5", placeholders: { step: { content: "$1" }, total: { content: "$2" } } };
+  eq(S.formatMessage(entry, [3, 7]), "Step 3 of 7 costs $5");
+  eq(S.formatMessage(entry, ["$2", "x"]), "Step $2 of x costs $5");   // a substitution is not re-substituted
+  eq(S.formatMessage({ message: "Hi $Name$", placeholders: { name: { content: "$1" } } }, "Ann"), "Hi Ann"); // case-insensitive, single sub
+  eq(S.formatMessage({ message: "plain" }), "plain");
+  eq(S.formatMessage(undefined), "");
+});
+
+test("makeTranslator: chosen language first, then the fallback; strict without one", () => {
+  const uz = S.makeTranslator({ stop: { message: "To'xtatish" } }, (key) => T(key));
+  eq(uz("stop"), "To'xtatish");
+  eq(uz("settings"), "Settings");                     // not translated yet: English
+  let threw = false;
+  try { T("no_such_key"); } catch (e) { threw = true; }
+  ok(threw, "a missing key must throw in the strict translator");
+});
+
+const GUIDE_ROUTE = [
+  { id: "portal.root", site: "portal", name_ko: "세종대학교 포털", name_en: "Sejong University Portal" },
+  { id: "portal.sjpt", site: "portal", name_ko: "학사정보시스템 (SJPT)", name_en_site: "Academic Information System (SJPT)", opens_new_tab: true },
+  { id: "sjpt.self_stud", site: "sjpt", name_ko: "학부생학사정보", name_en_site: "*Student*Information Plaza", mobile_path_note: "top tab first" },
+  { id: "sjpt.current_semester_grades", site: "sjpt", name_ko: "당학기성적조회", name_en_site: "Current Semester Grade inquiry" },
+];
+
+test("guideMessage: every status has English text with Korean + English menu names", () => {
+  const g = Object.assign(S.newGuide(GUIDE_ROUTE, null, 1), { step: 2 });
+  const kinds = ["pending", "reload", "other-tab", "kor-only", "missing", "hint", "next", "here"];
+  for (const kind of kinds) {
+    const index = kind === "here" ? 3 : kind === "hint" ? 1 : 2;
+    const text = S.guideMessage(g, { kind, index }, T);
+    ok(text && text.indexOf("$") < 0, `${kind}: ${text}`);
+    ok(text.indexOf(kind === "here" ? "당학기성적조회" : kind === "hint" ? "학사정보시스템" : "학부생학사정보") >= 0, `${kind}: ${text}`);
+  }
+  eq(S.guideMessage(g, { kind: "next", index: 2 }, T), "Step 2 of 3: click the highlighted “학부생학사정보 / *Student*Information Plaza”.");
+  ok(S.guideMessage(g, { kind: "hint", index: 1 }, T).indexOf("It opens in a new tab") >= 0); // portal.sjpt opens a new tab
+  ok(S.guideMessage(g, { kind: "missing", index: 2 }, T).indexOf("Path: top tab first") >= 0);
+  ok(S.guideMessage(g, { kind: "kor-only", index: 2 }, T).indexOf("This menu only appears in Korean mode (KOR)") === 0);
+  ok(S.guideMessage(g, { kind: "reload", index: 2 }, T).indexOf("Reload this page (Cmd+R) to start the guide.") === 0);
+});
+
+test("idleMessage: no path, another guide, done, stopped", () => {
+  const g = S.newGuide(GUIDE_ROUTE, null, 1);
+  eq(S.idleMessage([GUIDE_ROUTE[0]], "x", null, null, T), "No click path to this item.");
+  ok(S.idleMessage(GUIDE_ROUTE, "x", g, null, T).indexOf("당학기성적조회") >= 0);
+  eq(S.idleMessage(GUIDE_ROUTE, "t", null, { targetId: "t", outcome: "finished", name: "당학기성적조회" }, T), "Done: you reached “당학기성적조회”.");
+  eq(S.idleMessage(GUIDE_ROUTE, "t", null, { targetId: "t", outcome: "stopped" }, T), "Guide stopped.");
+  eq(S.idleMessage(GUIDE_ROUTE, "t", null, { targetId: "other", outcome: "stopped" }, T), "");
+});
+
+test("crumbsModel: current step orange, earlier steps done, root never struck", () => {
+  const rows = S.crumbsModel(GUIDE_ROUTE, 2, 2);
+  eq(rows.map((r) => r.state), ["", "done", "current", ""]);
+  eq([rows[1].ko, rows[1].en], ["학사정보시스템 (SJPT)", "Academic Information System (SJPT)"]);
+  eq(rows[0].en, "Sejong University Portal");
+  eq(S.crumbsModel(GUIDE_ROUTE).map((r) => r.state), ["", "", "", ""]); // just a path, no guide
+});
+
+// ------------------------------------------------------------------ floating widget
+
+test("widgetMode: mini → compact → full and back, toolbar toggle, junk", () => {
+  eq(S.WIDGET_MODES, ["mini", "compact", "full"]);
+  eq(S.widgetMode("mini", "expand"), "compact");         // click the pill
+  eq(S.widgetMode("compact", "expand"), "full");
+  eq(S.widgetMode("full", "expand"), "full");
+  eq(S.widgetMode("full", "collapse"), "compact");
+  eq(S.widgetMode("compact", "collapse"), "mini");
+  eq(S.widgetMode("mini", "collapse"), "mini");
+  eq(S.widgetMode("full", "toggle"), "mini");            // toolbar icon
+  eq(S.widgetMode("compact", "toggle"), "full");
+  eq(S.widgetMode("mini", "toggle"), "full");
+  eq(S.widgetMode("full", "compact"), "compact");        // set directly (guide started)
+  eq(S.widgetMode("garbage", "expand"), "full");         // unknown saved mode: the default
+  eq(S.widgetMode(undefined, "nothing"), S.DEFAULT_WIDGET_MODE);
+});
+
+const VIEW = { width: 1200, height: 800 };
+const SIZE = { width: 300, height: 200 };
+const rect = (left, top, w, h) => ({ left, top, right: left + w, bottom: top + h });
+const box = (p) => rect(p.x, p.y, SIZE.width, SIZE.height);
+const overlaps = (a, b) => Math.min(a.right, b.right) > Math.max(a.left, b.left) && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top);
+
+test("clampWidget keeps the widget inside the viewport (resize)", () => {
+  eq(S.clampWidget(null, SIZE, VIEW), { x: 892, y: 592 });                       // default: bottom-right
+  eq(S.clampWidget({ x: 5000, y: -40 }, SIZE, VIEW), { x: 892, y: 8 });
+  eq(S.clampWidget({ x: 892, y: 592 }, SIZE, { width: 600, height: 400 }), { x: 292, y: 192 }); // window got smaller
+  eq(S.clampWidget({ x: 100, y: 100 }, SIZE, { width: 200, height: 100 }), { x: 8, y: 8 });     // bigger than the window
+});
+
+test("placeWidget: stays home unless it would cover the highlight, then the opposite corner", () => {
+  const home = { x: 892, y: 592 };                                              // bottom-right
+  eq(S.placeWidget(home, SIZE, null, VIEW), { x: 892, y: 592, avoided: false });
+  eq(S.placeWidget(home, SIZE, rect(100, 100, 120, 30), VIEW), { x: 892, y: 592, avoided: false }); // far away
+  const under = rect(950, 650, 120, 30);                                        // highlight behind the widget
+  const p = S.placeWidget(home, SIZE, under, VIEW);
+  eq(p, { x: 8, y: 8, avoided: true });                                         // diagonally opposite: top-left
+  ok(!overlaps(box(p), under));
+  // just outside the widget but within the 8 px margin still counts as covering
+  ok(S.placeWidget(home, SIZE, rect(870, 650, 20, 20), VIEW).avoided);
+});
+
+test("placeWidget: the next free corner when the opposite one is covered too, least overlap if none is free", () => {
+  const home = { x: 8, y: 8 };                                                  // top-left
+  const wideBar = rect(0, 0, 1200, 120);                                        // a full-width menu bar at the top
+  const p = S.placeWidget(home, SIZE, wideBar, VIEW);
+  ok(p.avoided && p.y === 592, JSON.stringify(p));                              // moved to the bottom
+  ok(!overlaps(box(p), wideBar));
+  const huge = rect(0, 0, 1200, 800);                                           // covers everything
+  const q = S.placeWidget(home, SIZE, huge, VIEW);
+  ok(q.avoided && Number.isFinite(q.x) && Number.isFinite(q.y));
+});
+
+test("placeWidget returns home after the highlight moves away (home is never changed)", () => {
+  const home = { x: 892, y: 592 };
+  ok(S.placeWidget(home, SIZE, rect(950, 650, 120, 30), VIEW).avoided);
+  eq(S.placeWidget(home, SIZE, null, VIEW), { x: 892, y: 592, avoided: false });
+  eq(home, { x: 892, y: 592 });
+});
+
 print("RESULT " + JSON.stringify({ passed, failures }));
 print("EXPORT " + JSON.stringify(exported));

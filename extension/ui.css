@@ -1,0 +1,91 @@
+/* AI-generated — to be rewritten by me */
+/* The guide UI (ui.js): shared by the side panel (popup.html) and the floating widget
+   (widget.js, inside its Shadow DOM, where :host carries the tokens). */
+:root, :host {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --line: #d0d7de;
+  --hover: #f3f4f6;
+  --accent: #c3002f;
+  --accent-fg: #ffffff;
+  /* The guide's orange, same family as the on-page highlight (content.css). As text on white,
+     #D97757 is only 3.1:1, so light mode uses the deeper #B4532F (5.0:1). */
+  --guide: #b4532f;
+  --warn-bg: #fff8c5;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root, :host {
+    --bg: #1c1f24;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --line: #3d444d;
+    --hover: #262a31;
+    --guide: #d97757; /* 5.3:1 on the dark background */
+    --warn-bg: #3b2e00;
+  }
+}
+
+button.icon { padding: 3px 7px; border-color: transparent; color: var(--muted); }
+button.icon:hover { color: var(--fg); }
+h3 { margin: 12px 0 6px; font-size: 13px; }
+.muted { color: var(--muted); margin: 6px 0; }
+.banner { background: var(--warn-bg); padding: 6px 8px; border-radius: 6px; margin: 0 0 8px; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+[hidden] { display: none !important; }
+
+button, .button, select {
+  font: inherit;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+button:hover, .button:hover { background: var(--hover); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+button.danger { color: var(--accent); }
+
+.search-box { position: relative; }
+.q {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.suggestions {
+  position: absolute; left: 0; right: 0; z-index: 1;
+  margin: 2px 0 0; padding: 0; list-style: none;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+}
+.suggestions li { padding: 5px 9px; cursor: pointer; }
+.suggestions li:hover, .suggestions li.active { background: var(--hover); }
+
+.results { padding-left: 0; list-style: none; margin: 8px 0; }
+.results li { padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 5px; cursor: pointer; }
+.results li:hover, .results li.chosen { border-color: var(--accent); }
+.results .ko { font-weight: 600; }
+.results .meta { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+.site { text-transform: uppercase; font-size: 11px; letter-spacing: 0.03em; }
+
+.crumbs { display: flex; flex-wrap: wrap; gap: 2px 0; padding: 0; margin: 0; list-style: none; }
+.crumbs li { display: flex; align-items: center; }
+.crumbs li:not(:last-child)::after { content: "›"; color: var(--muted); margin: 0 6px; }
+.crumbs .crumb { display: flex; flex-direction: column; }
+.crumbs .crumb .en { color: var(--muted); font-size: 11px; }
+.crumbs li.current .crumb { color: var(--guide); font-weight: 600; }
+.crumbs li.current .crumb .en { color: var(--guide); }
+.crumbs li.done .crumb { color: var(--muted); text-decoration: line-through; }
+.crumbs.small { font-size: 12px; min-height: 18px; }
+
+.settings { margin-top: 12px; }
+.settings summary { cursor: pointer; color: var(--muted); }
+.settings label { display: block; margin: 6px 0; }
+.settings select { padding: 3px 6px; }

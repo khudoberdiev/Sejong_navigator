@@ -21,11 +21,32 @@ JSC = Path("/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current
 needs_jsc = pytest.mark.skipif(not JSC.exists(), reason="needs macOS JavaScriptCore (jsc)")
 
 
+MESSAGES = EXT / "_locales" / "en" / "messages.json"
+# How UI text is used: t("key" ...) in JS (always a literal key), data-i18n*="key" in HTML,
+# __MSG_key__ in the manifest. Keys read directly by code are listed in DIRECT_KEYS.
+KEY_IN_JS = re.compile(r"\bt\(\s*\"([A-Za-z0-9_@]+)\"")
+KEY_IN_HTML = re.compile(r"data-i18n(?:-[a-z-]+)?=\"([A-Za-z0-9_@]+)\"")
+KEY_IN_MANIFEST = re.compile(r"__MSG_([A-Za-z0-9_@]+)__")
+DIRECT_KEYS = {"language_name"}  # i18n.js: each locale's own name for Settings → UI language
+
+
+def used_message_keys():
+    keys = set(DIRECT_KEYS)
+    for js in EXT.glob("*.js"):
+        keys |= set(KEY_IN_JS.findall(js.read_text(encoding="utf-8")))
+    for page in EXT.glob("*.html"):
+        keys |= set(KEY_IN_HTML.findall(page.read_text(encoding="utf-8")))
+    keys |= set(KEY_IN_MANIFEST.findall((EXT / "manifest.json").read_text(encoding="utf-8")))
+    return keys
+
+
 @pytest.fixture(scope="module")
 def js_run(tmp_path_factory):
     script = tmp_path_factory.mktemp("js") / "run.js"
     script.write_text(
         (EXT / "shared.js").read_text(encoding="utf-8") + "\n"
+        + "const EN_MESSAGES = " + MESSAGES.read_text(encoding="utf-8") + ";\n"
+        + "const USED_KEYS = " + json.dumps(sorted(used_message_keys())) + ";\n"
         + (ROOT / "tests" / "js" / "shared.test.js").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
@@ -119,9 +140,10 @@ def test_injected_files_match_the_manifest_content_scripts():
     # background.js injects into tabs that were open before the extension (re)loaded: it must
     # inject exactly what the manifest injects into new pages.
     text = (EXT / "background.js").read_text(encoding="utf-8")
-    match = re.search(r"const CONTENT_FILES = (\{.*?\});", text)
+    match = re.search(r"const CONTENT_FILES = (\{.*?\});", text, re.S)
     assert match, "CONTENT_FILES not found in background.js"
-    files = json.loads(re.sub(r"(\w+):", r'"\1":', match.group(1)))
+    literal = re.sub(r",\s*([}\]])", r"\1", re.sub(r"(\w+):", r'"\1":', match.group(1)))  # JS object -> JSON
+    files = json.loads(literal)
     manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
     main = next(s for s in manifest["content_scripts"] if s.get("world") == "MAIN")
     isolated = next(s for s in manifest["content_scripts"] if s.get("world") != "MAIN")
@@ -158,3 +180,74 @@ def test_content_script_does_not_restyle_the_site():
     text = (EXT / "content.js").read_text(encoding="utf-8")
     assert "classList.add(HIGHLIGHT" not in text and 'tip.id = "sejong-nav-pointer"' not in text
     assert 'createElement(FRAME_TAG)' in text
+
+
+# --------------------------------------------------------------------- UI text (i18n)
+
+
+def test_manifest_is_localized():
+    manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["default_locale"] == "en"
+    assert manifest["name"] == "__MSG_ext_name__" and manifest["description"] == "__MSG_ext_description__"
+    assert manifest["action"]["default_title"] == "__MSG_ext_name__"
+
+
+def test_every_ui_string_key_exists_in_english_and_none_is_unused():
+    messages = json.loads(MESSAGES.read_text(encoding="utf-8"))
+    used = used_message_keys()
+    assert len(used) > 50
+    assert sorted(used - set(messages)) == [], "keys used in the code but missing from _locales/en/messages.json"
+    assert sorted(set(messages) - used) == [], "keys in messages.json that no code uses"
+    for key, entry in messages.items():
+        assert re.fullmatch(r"[A-Za-z0-9_@]+", key), key  # Chrome's rule for message names
+        assert entry["message"].strip(), f"{key}: empty English text"
+        named = set(re.findall(r"\$([A-Za-z0-9_@]+)\$", entry["message"]))
+        assert named == set(entry.get("placeholders", {})), f"{key}: placeholders do not match the text"
+
+
+def test_every_shipped_locale_is_a_known_code():
+    text = (EXT / "i18n.js").read_text(encoding="utf-8")
+    candidates = set(re.findall(r'"([a-z]{2,3}(?:_[A-Z0-9]{2,3})?)"', text.split("CANDIDATE_LOCALES = [", 1)[1].split("]", 1)[0]))
+    for folder in (EXT / "_locales").iterdir():
+        assert folder.name in candidates, f"{folder.name}: add it to CANDIDATE_LOCALES in i18n.js"
+        assert (folder / "messages.json").is_file()
+
+
+def test_side_panel_html_has_no_hard_coded_text():
+    from html.parser import HTMLParser
+
+    class Text(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack, self.found = [], []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            for name in ("placeholder", "title", "aria-label"):
+                assert name not in attrs, f"<{tag} {name}=...>: use data-i18n-{name}"
+            if tag not in ("meta", "link", "input", "br", "img"):
+                self.stack.append((tag, "data-i18n" in attrs))
+
+        def handle_endtag(self, tag):
+            while self.stack and self.stack.pop()[0] != tag:
+                pass
+
+        def handle_data(self, data):
+            text = data.strip()
+            inside_script = any(tag in ("script", "style") for tag, _ in self.stack)
+            translated = any(flag for _, flag in self.stack)
+            if text and not inside_script and not translated and re.search(r"[A-Za-z가-힣]", text):
+                self.found.append(text)
+
+    parser = Text()
+    parser.feed((EXT / "popup.html").read_text(encoding="utf-8").replace("<!-- AI-generated — to be rewritten by me -->", ""))
+    assert parser.found == [], f"hard-coded text in popup.html: {parser.found}"
+
+
+def test_widget_lives_in_a_closed_shadow_root_below_the_frame():
+    text = (EXT / "widget.js").read_text(encoding="utf-8")
+    assert 'attachShadow({ mode: "closed" })' in text
+    z_widget = int(re.search(r'Z_INDEX = "(\d+)"', text).group(1))
+    z_frame = int(re.search(r"z-index:\s*(\d+)", (EXT / "content.css").read_text(encoding="utf-8")).group(1))
+    assert z_widget == z_frame - 1
+    assert 'position: "fixed"' in text  # never part of the page's layout

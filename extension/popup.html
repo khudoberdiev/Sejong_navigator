@@ -3,79 +3,53 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Sejong Navigator</title>
+    <title data-i18n="ext_name"></title>
+    <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="popup.css" />
   </head>
+  <!-- All text comes from _locales/<lang>/messages.json: data-i18n* attributes (i18n.js). -->
   <body>
     <header>
-      <strong>Sejong Navigator</strong>
+      <strong data-i18n="ext_name"></strong>
       <nav class="tabs">
-        <button class="tab" data-tab="search">Search</button>
-        <button class="tab" data-tab="record">Record menu</button>
-        <button id="panel-close" class="icon" title="Close panel" aria-label="Close panel">✕</button>
+        <button class="tab" data-tab="search" data-i18n="tab_search"></button>
+        <button class="tab" data-tab="record" data-i18n="tab_record"></button>
+        <button id="panel-close" class="icon" data-i18n-title="close_panel" data-i18n-aria-label="close_panel">✕</button>
       </nav>
     </header>
 
-    <p id="backend-error" class="banner" hidden></p>
-
-    <!-- ============================================================ Search -->
-    <section id="tab-search" hidden>
-      <div class="search-box">
-        <input id="q" type="search" autocomplete="off"
-               placeholder="baholarim qayerda? · where are my grades? · 성적 조회" />
-        <ul id="suggestions" class="suggestions" hidden></ul>
-      </div>
-      <ol id="results" class="results"></ol>
-
-      <div id="route" hidden>
-        <h3>Click path</h3>
-        <ol id="crumbs" class="crumbs"></ol>
-        <div class="row">
-          <button id="guide-start" class="primary">Show me on this page</button>
-          <button id="guide-open" hidden></button>
-          <button id="guide-stop">Stop</button>
-        </div>
-        <p id="guide-status" class="muted"></p>
-      </div>
-
-      <details class="settings">
-        <summary>Settings</summary>
-        <label><input id="opt-english" type="checkbox" /> Keep English menu labels on Sejong sites</label>
-        <label><input id="opt-translate" type="checkbox" /> Translate Korean pop-ups to English (on this computer)</label>
-        <p class="muted">Reload the Sejong tab after changing these.</p>
-      </details>
-    </section>
+    <!-- ============================================================ Search (ui.js) -->
+    <section id="tab-search" hidden></section>
 
     <!-- ============================================================ Record -->
     <section id="tab-record" hidden>
-      <p class="muted">
-        Records ONLY menu labels, links/selectors and nesting on the Portal, SJPT, e-Campus and
-        Library sites. Never page content, grades, names or student IDs.
-      </p>
+      <p class="muted" data-i18n="rec_intro"></p>
       <div class="row">
-        <button id="rec-toggle" class="primary">Start recording clicks</button>
-        <button id="rec-scan">Scan menus on this page</button>
+        <button id="rec-toggle" class="primary"></button>
+        <button id="rec-scan" data-i18n="rec_scan"></button>
       </div>
       <div class="row">
-        <button id="rec-newpath">New path</button>
-        <button id="rec-undo">Undo last</button>
+        <button id="rec-newpath" data-i18n="rec_new_path"></button>
+        <button id="rec-undo" data-i18n="rec_undo"></button>
       </div>
-      <p class="muted">Next click becomes a child of:</p>
+      <p class="muted" data-i18n="rec_next_child"></p>
       <ol id="rec-chain" class="crumbs small"></ol>
 
-      <h3><span id="rec-count">0</span> recorded items</h3>
+      <h3 id="rec-count"></h3>
       <ul id="rec-list" class="rec-list"></ul>
 
       <div class="row">
-        <button id="rec-export" class="primary">Export JSON</button>
-        <label class="button">Import JSON<input id="rec-import" type="file" accept=".json,application/json" hidden /></label>
-        <button id="rec-clear" class="danger">Clear all</button>
+        <button id="rec-export" class="primary" data-i18n="rec_export"></button>
+        <label class="button"><span data-i18n="rec_import"></span><input id="rec-import" type="file" accept=".json,application/json" hidden /></label>
+        <button id="rec-clear" class="danger" data-i18n="rec_clear"></button>
       </div>
       <p id="rec-status" class="muted"></p>
     </section>
 
     <script src="config.js"></script>
     <script src="shared.js"></script>
+    <script src="i18n.js"></script>
+    <script src="ui.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

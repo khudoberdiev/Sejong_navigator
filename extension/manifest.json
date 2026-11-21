@@ -1,13 +1,25 @@
 {
   "manifest_version": 3,
-  "name": "Sejong Navigator",
-  "version": "0.3.0",
-  "description": "AI-generated — to be rewritten by me. Find pages on Sejong University websites, record their menus, read them in English.",
+  "name": "__MSG_ext_name__",
+  "version": "0.5.0",
+  "description": "__MSG_ext_description__",
+  "default_locale": "en",
   "minimum_chrome_version": "116",
-  "action": { "default_title": "Sejong Navigator" },
-  "side_panel": { "default_path": "popup.html" },
-  "background": { "service_worker": "background.js" },
-  "permissions": ["storage", "webNavigation", "sidePanel", "scripting"],
+  "action": {
+    "default_title": "__MSG_ext_name__"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "webNavigation",
+    "sidePanel",
+    "scripting"
+  ],
   "host_permissions": [
     "*://portal.sejong.ac.kr/*",
     "*://sjpt.sejong.ac.kr/*",
@@ -24,7 +36,9 @@
         "*://ecampus.sejong.ac.kr/*",
         "*://library.sejong.ac.kr/*"
       ],
-      "js": ["page_hook.js"],
+      "js": [
+        "page_hook.js"
+      ],
       "world": "MAIN",
       "all_frames": true,
       "match_about_blank": true,
@@ -37,8 +51,17 @@
         "*://ecampus.sejong.ac.kr/*",
         "*://library.sejong.ac.kr/*"
       ],
-      "js": ["shared.js", "content.js"],
-      "css": ["content.css"],
+      "js": [
+        "config.js",
+        "shared.js",
+        "i18n.js",
+        "ui.js",
+        "widget.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "all_frames": true,
       "match_about_blank": true,
       "run_at": "document_idle"

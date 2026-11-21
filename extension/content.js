@@ -44,13 +44,15 @@
   window.__sejongNavigator = instance;
 
   const S = globalThis.SejongShared;
+  const I = globalThis.SejongI18n;
+  const t = (key, subs) => I.t(key, subs);
   const hostname = location.hostname || (self.origin && self.origin !== "null" ? new URL(self.origin).hostname : "");
   const SITE = S.siteForHost(hostname);
   if (!SITE) return;
 
   // Leftovers in the page from an earlier copy: its highlight frame, and the old design's
   // label bubble and the class it put on the site's element.
-  for (const old of document.querySelectorAll("sejong-nav-frame, #sejong-nav-pointer")) old.remove();
+  for (const old of document.querySelectorAll("sejong-nav-frame, sejong-nav-widget, #sejong-nav-pointer")) old.remove();
   for (const old of document.querySelectorAll(".sejong-nav-highlight")) old.classList.remove("sejong-nav-highlight");
 
   const ITEM = "li, [role=treeitem], [role=menuitem]";
@@ -210,6 +212,8 @@
   // ---------------------------------------------------------------- guide
 
   const FRAME_TAG = "sejong-nav-frame"; // the overlay (an unknown tag, so site CSS leaves it alone)
+  const WIDGET_TAG = globalThis.SejongWidget.HOST_TAG; // the floating widget (top frame)
+  let widget = null;
   let guiding = false;
   let current = null; // {el, frame, index, startedAt}
 
@@ -354,6 +358,7 @@
     cancelAnimationFrame(current.raf);
     current.frame.remove();
     current = null;
+    if (widget) widget.setTarget(null);
   }
 
   function track() {
@@ -369,6 +374,7 @@
     const key = current.shown ? `${g.left}|${g.top}|${g.width}|${g.height}` : "hidden";
     if (key !== current.key) { // write styles only when something moved
       current.key = key;
+      if (widget) widget.setTarget(current.shown ? { left: g.left, top: g.top, right: g.left + g.width, bottom: g.top + g.height } : null);
       setImportant(frame, current.shown ? {
         display: "block", left: `${g.left}px`, top: `${g.top}px`, width: `${g.width}px`, height: `${g.height}px`,
         "--sejong-glow": String(g.glow),
@@ -525,13 +531,13 @@
         const availability = await Translator.availability(LANGS);
         if (availability === "available") {
           translator = translator || await Translator.create(LANGS);
-          return { text: await translator.translate(text), engine: "Chrome on-device translator" };
+          return { text: await translator.translate(text), engine: t("engine_chrome") };
         }
         downloadable = availability === "downloadable" || availability === "downloading";
       } catch (e) { /* API present but blocked here: try the next option */ }
     }
     const answer = await chrome.runtime.sendMessage({ type: "translate:libre", text }).catch(() => null);
-    if (answer && answer.ok && answer.data) return { text: answer.data, engine: "LibreTranslate (self-hosted)" };
+    if (answer && answer.ok && answer.data) return { text: answer.data, engine: t("engine_libre") };
     return downloadable ? { needsDownload: true } : null;
   }
 
@@ -576,7 +582,8 @@
     const box = make("div", "box");
     const header = make("header");
     const close = make("button", null, "✕");
-    close.title = "Close";
+    close.title = t("close");
+    close.setAttribute("aria-label", t("close"));
     close.addEventListener("click", () => document.getElementById(OVERLAY_ID).remove());
     header.append(make("span", null, title), close);
     box.append(header, make("div", "body", message));
@@ -586,34 +593,35 @@
       box.append(button);
     }
     const details = make("details");
-    details.append(make("summary", null, "Original (한국어)"), make("div", "orig", original));
+    details.append(make("summary", null, t("popup_original")), make("div", "orig", original));
     box.append(details);
     root.replaceChildren(style, box);
   }
 
   async function showTranslation(original, kind) {
-    const title = `English · ${kind === "alert" || kind === "confirm" || kind === "prompt" ? `last ${kind}()` : "pop-up"}`;
-    renderOverlay({ title, message: "Translating…", original });
+    const title = kind === "alert" || kind === "confirm" || kind === "prompt"
+      ? t("popup_title_dialog", [kind]) : t("popup_title_popup");
+    renderOverlay({ title, message: t("translating"), original });
     const result = await translateKo(original);
     if (result && result.text) {
-      renderOverlay({ title: `${title} · ${result.engine}`, message: result.text, original });
+      renderOverlay({ title: t("popup_title_engine", [title, result.engine]), message: result.text, original });
     } else if (result && result.needsDownload) {
       renderOverlay({
         title, original,
-        message: "Chrome can translate Korean on this computer, but needs a one-time download (~ tens of MB). Nothing is sent to a server.",
+        message: t("translator_needs_download"),
         action: {
-          label: "Download translator",
+          label: t("download_translator"),
           run: async () => { // a click = the user gesture Chrome requires for the download
             try {
               translator = await Translator.create({
                 ...LANGS,
                 monitor(m) {
-                  m.addEventListener("downloadprogress", (e) => renderOverlay({ title, original, message: `Downloading… ${Math.round(e.loaded * 100)}%` }));
+                  m.addEventListener("downloadprogress", (e) => renderOverlay({ title, original, message: t("downloading", [Math.round(e.loaded * 100)]) }));
                 },
               });
               showTranslation(original, kind);
             } catch (e) {
-              renderOverlay({ title, original, message: `Download failed: ${e.message}` });
+              renderOverlay({ title, original, message: t("download_failed", [e.message]) });
             }
           },
         },
@@ -621,7 +629,7 @@
     } else {
       renderOverlay({
         title, original,
-        message: "No translator available. Use Chrome 138+ (built-in on-device translator) or start a self-hosted LibreTranslate and set TRANSLATE_URL in config.js.",
+        message: t("no_translator"),
       });
     }
   }
@@ -630,6 +638,7 @@
 
   document.addEventListener("click", (event) => {
     if (dead) return; // an orphan from before an extension reload: a fresh copy took over
+    if (event.target instanceof Element && event.target.closest(WIDGET_TAG)) return; // our own UI
     if (recording) recordClick(event.target);
     // The user clicked the highlighted step: save the next step (before the page navigates away).
     if (current && event.target instanceof Node && current.el.contains(event.target)) {
@@ -661,6 +670,11 @@
         showPointer(msg.path, msg.index, msg.startedAt);
         sendResponse({ ok: true });
         break;
+      case "widget:toggle": // toolbar icon in widget mode (top frame only)
+        if (window !== window.top) return false;
+        if (widget) widget.toggle();
+        sendResponse({ ok: !!widget });
+        break;
       case "guide:clear":
         guiding = !!msg.guiding;
         clearPointer();
@@ -678,9 +692,34 @@
     dead = true;
     guiding = false;
     clearPointer();
+    if (widget) { widget.destroy(); widget = null; }
     englishObserver.disconnect();
     popupObserver.disconnect();
   };
+
+  // ---------------------------------------------------------------- floating widget
+
+  // The default UI (widget.js), in the TOP frame of Sejong pages only, unless Settings →
+  // Display is "Side panel". It only renders guide state and sends messages.
+  async function updateWidget() {
+    if (dead || window !== window.top) return;
+    const { display } = await chrome.storage.local.get("display").catch(() => ({}));
+    const wanted = display !== "panel";
+    if (wanted && !widget) {
+      widget = globalThis.SejongWidget.create();
+      if (current && current.shown && current.key && current.key !== "hidden") {
+        const [left, top, width, height] = current.key.split("|").map(Number);
+        widget.setTarget({ left, top, right: left + width, bottom: top + height });
+      }
+    } else if (!wanted && widget) {
+      widget.destroy();
+      widget = null;
+    }
+  }
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.display) updateWidget();
+  });
+  I.init().then(updateWidget, updateWidget);
 
   // A new page (or frame) loaded, also a new tab opened by SSO, or background.js injected this
   // copy into an open tab: if a guide is active, continue it.

@@ -112,11 +112,25 @@ min-max scaled to 0–1 for each query.
 **Load:** `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → choose `extension/`.
 After editing extension files, press ⟳ on the extension card, then reload the Sejong tabs.
 
-**Open:** click the toolbar icon. The UI opens in Chrome's **side panel** and stays open while you click
-and navigate the page. Close it with ✕ in the panel header or the toolbar icon again.
+**Open:** on a Sejong page, the **floating widget** appears (default). It has three views, like Zoom:
+- **mini**: a small "—" pill. Click it to expand.
+- **compact**: only the click path (current step in orange, done steps struck through) and **Stop**.
+- **full**: search, results, click path, status and Settings.
 
-**Search:** type in the side panel (suggestions appear while you type) → Enter → pick one of the top 3 →
-breadcrumbs (Korean + English) → **Show me on this page** outlines the next menu item to click.
+Use **–** / **+** in the widget header, or the toolbar icon (full ↔ mini).
+- **Drag:** drag the widget by its header (or drag the pill). Its position and view are saved and shared by all tabs.
+- **Never in the way:** it stays inside the window, never shifts the page (it is fixed, in a closed Shadow DOM), and moves to another corner while it would cover the highlighted element.
+- **Side panel instead:** Settings → **Display: Side panel** brings back Chrome's side panel, which the toolbar icon then opens. On non-Sejong tabs the toolbar icon always opens the side panel. The menu recorder (**Record menu** tab) lives only in the side panel.
+
+**Search:** type in the widget (or side panel); suggestions appear while you type. Press Enter, pick one of the top 3,
+check the breadcrumbs (Korean + English), and press **Show me on this page** to outline the next menu item to click.
+Starting a guide from the widget switches it to the compact view.
+
+**UI language:** all UI text is in `extension/_locales/<code>/messages.json` (English is complete and the default).
+- Settings → **UI language: Auto** follows Chrome's language. Choosing a language uses that file.
+- **Adding a language** = adding `_locales/<code>/messages.json` with a `language_name` entry. It appears in the list by itself.
+- `chrome.i18n` only auto-picks locales Chrome supports (e.g. not `uz`), but a language chosen in Settings works for any code.
+- Menu names always stay Korean + English.
 
 The running guide is kept in `chrome.storage.session` (one guide for the whole browser, cleared when
 Chrome closes). Every Sejong page load, including a new tab that SSO opens for SJPT, highlights the

@@ -1,0 +1,48 @@
+/* AI-generated — to be rewritten by me */
+/* The floating widget (widget.js). Lives in a closed Shadow DOM, after ui.css.
+   The host element itself is positioned by widget.js (inline, !important). */
+:host { all: initial; }
+.sn-widget {
+  font: 13px/1.4 system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  color: var(--fg);
+}
+.sn-card {
+  box-sizing: border-box;
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 0 12px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.sn-widget[data-mode="compact"] .sn-card { width: 280px; }
+.sn-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  margin: 0 -12px 6px; padding: 6px 6px 6px 12px;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  cursor: grab; user-select: none; touch-action: none;
+}
+.sn-head:active { cursor: grabbing; }
+.sn-title { font-weight: 600; }
+.sn-buttons { display: flex; gap: 2px; }
+.sn-buttons button { padding: 0 8px; font-size: 15px; line-height: 22px; }
+
+.sn-pill {
+  min-width: 44px; height: 26px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: 13px;
+  background: var(--bg); color: var(--fg);
+  font: 600 15px/24px system-ui, sans-serif;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  cursor: grab; touch-action: none;
+}
+
+/* the three views */
+.sn-widget[data-mode="mini"] .sn-card { display: none; }
+.sn-widget:not([data-mode="mini"]) .sn-pill { display: none; }
+.sn-widget[data-mode="compact"] .sn-full { display: none; }
+.sn-widget[data-mode="full"] .sn-compact { display: none; }
+.sn-compact .crumbs { margin: 4px 0; }

@@ -464,7 +464,6 @@
     return { guide: Object.assign({}, guide, { step }), finished: false };
   }
 
-  const KOR_ONLY_NOTE = "This menu only appears in Korean mode (KOR)";
   // Sites whose English-mode menu was recorded, so name_en_site null really means "not in the
   // ENG menu". (The library data has no English labels at all: null there means "not recorded".)
   const KOR_ONLY_SITES = ["sjpt"];
@@ -497,12 +496,165 @@
     return { kind: "next", index: view.shown };
   }
 
+
+  // ------------------------------------------------------------------ UI text (i18n)
+
+  // All UI text lives in _locales/<lang>/messages.json (Chrome's format). i18n.js uses
+  // chrome.i18n.getMessage for "Auto", or this formatter over a loaded messages.json when the
+  // user picked a language. Same rules as Chrome: "$name$" is replaced by that placeholder's
+  // "content", in which "$1".."$9" are the substitutions; "$$" is a literal "$".
+  function formatMessage(entry, subs) {
+    if (!entry || typeof entry.message !== "string") return "";
+    const list = Array.isArray(subs) ? subs : subs === undefined ? [] : [subs];
+    const sub = (text) => String(text).replace(/\$(\d)/g, (m, n) => (list[n - 1] === undefined ? "" : String(list[n - 1])));
+    const placeholders = {};
+    for (const [name, p] of Object.entries(entry.placeholders || {})) placeholders[name.toLowerCase()] = sub(p.content || "");
+    return entry.message.replace(/\$\$|\$([a-z0-9_@]+)\$/gi, (m, name) =>
+      m === "$$" ? "$" : placeholders[name.toLowerCase()] !== undefined ? placeholders[name.toLowerCase()] : m);
+  }
+
+  // → t(key, subs). A key missing from `messages` uses `fallback` (e.g. chrome.i18n, i.e. English);
+  // with no fallback it throws, which is what the tests want.
+  function makeTranslator(messages, fallback) {
+    return (key, subs) => {
+      if (messages && messages[key]) return formatMessage(messages[key], subs);
+      if (fallback) return fallback(key, subs);
+      throw new Error(`missing UI message: ${key}`);
+    };
+  }
+
+  // ------------------------------------------------------------------ guide text (panel + widget)
+
+  // Menu names stay Korean + English, whatever the UI language.
+  function nameOf(item) {
+    return (item && (item.name_ko || englishName(item) || item.id)) || "";
+  }
+  // "학사정보시스템 (SJPT) / Academic Information System (SJPT)": what the page shows in either mode.
+  function bothNames(item) {
+    return [nameOf(item), englishName(item)].filter((n, i, all) => n && all.indexOf(n) === i).join(" / ");
+  }
+
+  // The breadcrumbs: one row per route step. state: "current" (the step to click now, orange),
+  // "done" (struck through) or "".
+  function crumbsModel(route, highlightIndex, doneBefore) {
+    const current = highlightIndex === undefined ? -1 : highlightIndex;
+    const done = doneBefore || 0;
+    return (route || []).map((item, i) => {
+      const english = englishName(item);
+      return {
+        id: item.id,
+        ko: item.name_ko || english || item.id,
+        en: item.name_ko && english ? english : "",
+        state: i === current ? "current" : i > 0 && i < done ? "done" : "",
+      };
+    });
+  }
+
+  // The status line while a guide runs. info = guideStatus(guide, view). t = translator.
+  function guideMessage(guide, info, t) {
+    const last = guide.route.length - 1;
+    const step = guide.route[guide.step];
+    const shown = guide.route[info.index];
+    const of = t("step_of", [guide.step, last]);
+    const newTab = (item) => (item && item.opens_new_tab ? " " + t("hint_new_tab") : "");
+    switch (info.kind) {
+      case "here": return t("status_here", [bothNames(shown)]);
+      case "next": return t("status_next", [info.index, last, bothNames(shown)]) + newTab(shown);
+      case "hint": return t("status_hint", [of, bothNames(shown), bothNames(step)]) + newTab(shown);
+      case "kor-only": return t("status_kor_only", [t("kor_only"), nameOf(guide.route[info.index])]);
+      case "missing": {
+        const note = step && step.mobile_path_note ? " " + t("hint_path_note", [step.mobile_path_note]) : "";
+        return t("status_missing", [of, bothNames(step)]) + note;
+      }
+      case "reload": return t("status_reload", [t("reload_page"), of, bothNames(step)]);
+      case "other-tab": return t("status_other_tab", [of, bothNames(step)]);
+      default: return t("status_pending", [of, bothNames(step)]);
+    }
+  }
+
+  // The status line when the shown path is NOT the running guide.
+  function idleMessage(path, targetId, guide, last, t) {
+    if ((path || []).length < 2) return t("no_click_path");
+    if (guide) return t("other_guide_running", [nameOf(guide.route[guide.route.length - 1])]);
+    if (last && last.targetId === targetId) {
+      return last.outcome === "finished" ? t("guide_done", [last.name]) : t("guide_stopped");
+    }
+    return "";
+  }
+
+  // ------------------------------------------------------------------ floating widget (widget.js)
+
+  // Like Zoom's views: mini (a small pill) → compact (only the click path) → full (everything).
+  const WIDGET_MODES = ["mini", "compact", "full"];
+  const DEFAULT_WIDGET_MODE = "full";
+  //   action: "expand" | "collapse" | "toggle" (toolbar icon: full ↔ mini) | one of WIDGET_MODES
+  function widgetMode(mode, action) {
+    const i = WIDGET_MODES.indexOf(mode);
+    const now = i < 0 ? DEFAULT_WIDGET_MODE : mode;
+    const at = WIDGET_MODES.indexOf(now);
+    if (WIDGET_MODES.indexOf(action) >= 0) return action;
+    if (action === "expand") return WIDGET_MODES[Math.min(at + 1, WIDGET_MODES.length - 1)];
+    if (action === "collapse") return WIDGET_MODES[Math.max(at - 1, 0)];
+    if (action === "toggle") return now === "full" ? "mini" : "full";
+    return now;
+  }
+
+  const WIDGET_MARGIN = 8;
+
+  // Keep the widget (top-left pos, size) fully inside the viewport, `margin` px from the edges.
+  // A widget bigger than the viewport sticks to the top-left margin.
+  function clampWidget(pos, size, viewport, margin) {
+    const m = margin === undefined ? WIDGET_MARGIN : margin;
+    const maxX = Math.max(m, viewport.width - size.width - m);
+    const maxY = Math.max(m, viewport.height - size.height - m);
+    const x = Number.isFinite(pos && pos.x) ? pos.x : maxX; // no saved position: bottom-right
+    const y = Number.isFinite(pos && pos.y) ? pos.y : maxY;
+    return { x: Math.round(Math.min(Math.max(x, m), maxX)), y: Math.round(Math.min(Math.max(y, m), maxY)) };
+  }
+
+  function overlapArea(a, b) {
+    const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return w > 0 && h > 0 ? w * h : 0;
+  }
+
+  // Where to draw the widget so it never covers the highlighted element.
+  //   home: the position the user chose (dragged, saved); target: the highlight frame's box
+  //   (viewport px) or null. → { x, y, avoided }
+  // If the widget at home overlaps the target (with `margin` to spare), it moves to the corner
+  // diagonally opposite the one it is nearest to; if that overlaps too, to the next free corner
+  // (horizontal mirror, vertical mirror, its own corner); if all overlap, the least covered one.
+  // When the target moves away, it goes back home (home itself is never changed here).
+  function placeWidget(home, size, target, viewport, margin) {
+    const m = margin === undefined ? WIDGET_MARGIN : margin;
+    const at = clampWidget(home, size, viewport, m);
+    const box = (p) => ({ left: p.x, top: p.y, right: p.x + size.width, bottom: p.y + size.height });
+    if (!target) return { x: at.x, y: at.y, avoided: false };
+    const grown = { left: target.left - m, top: target.top - m, right: target.right + m, bottom: target.bottom + m };
+    if (!overlapArea(box(at), grown)) return { x: at.x, y: at.y, avoided: false };
+
+    const right = at.x + size.width / 2 > viewport.width / 2;
+    const bottom = at.y + size.height / 2 > viewport.height / 2;
+    const far = clampWidget({ x: viewport.width, y: viewport.height }, size, viewport, m); // bottom-right
+    const corner = (r, b) => ({ x: r ? far.x : m, y: b ? far.y : m });
+    const candidates = [corner(!right, !bottom), corner(!right, bottom), corner(right, !bottom), corner(right, bottom)];
+    let best = null;
+    for (const c of candidates) {
+      const area = overlapArea(box(c), grown);
+      if (!area) return { x: c.x, y: c.y, avoided: true };
+      if (!best || area < best.area) best = { x: c.x, y: c.y, area };
+    }
+    return { x: best.x, y: best.y, avoided: true };
+  }
+
   root.SejongShared = Object.freeze({
     SITES, siteForHost, rootId, isRootId, cleanLabel, hasHangul, isSafeLabel, sanitizeUrl,
     stableId, newStore, applyClick, applyScan, undo, deleteItem, displayName, listForReview,
     toMenuMap, mergeMenuMap,
     decodeEntities, labelKey, siteNames, selectorsFor, labelMatches, pickCandidate, boxIsShown, englishName,
     FRAME_PAD, FRAME_BORDER, frameGeometry, contentScriptMissing,
-    newGuide, isGuide, pickStep, advanceGuide, KOR_ONLY_NOTE, korOnlyStep, guideStatus,
+    newGuide, isGuide, pickStep, advanceGuide, korOnlyStep, guideStatus,
+    formatMessage, makeTranslator, nameOf, bothNames, crumbsModel, guideMessage, idleMessage,
+    WIDGET_MODES, DEFAULT_WIDGET_MODE, WIDGET_MARGIN, widgetMode, clampWidget, placeWidget,
   });
 })(globalThis);
