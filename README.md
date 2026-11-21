@@ -30,7 +30,9 @@ Edit `data/raw/<site>.json`, never `data/menu_map.json`, then rebuild:
 .venv/bin/python scripts/build_menu_map.py --check  # only check that both copies are up to date
 ```
 
-- The build stops and lists every problem: wrong or missing fields, unknown site, duplicate ids, a `parent_id` that does not exist, cycles, links between sites.
+- The build stops and lists every problem: wrong or missing fields, unknown site, duplicate ids, a `parent_id` that does not exist, cycles, links between sites, a URL with a login token or session in its query (libseat links carry `?token=…`: store them without the query).
+- It adds one derived field, `label_en`: the English label users see (the site's own English label, else `name_en` without a note like "(home)" or "(footer)" that only tells our items apart). Search keeps using `name_en`.
+- It checks `data/answers.json` (answer cards, see below) and copies it to `extension/data/`.
 - It adds `portal.root` (the portal main page; every route starts there) and hangs every top-level portal item under it.
 - The top-level items of the other sites hang under the portal link that opens them: SJPT under `portal.sjpt`, e-Campus under `portal.ecampus`, the library under `portal.library` (`ENTRY_POINTS` in the script). So a route from the portal into SJPT always goes through `portal.sjpt`, which opens SJPT in a new tab.
 - `tests/test_menu_map.py` fails while `menu_map.json` is older than the raw files.
@@ -40,10 +42,10 @@ Fields of one item (all required in the raw files):
 | Field | Meaning |
 |---|---|
 | `id`, `site`, `parent_id` | Stable id, site (`portal`/`sjpt`/`ecampus`/`library`), the item you click before it (`null` = top level) |
-| `name_ko`, `name_en` | Korean label on the site; our English name (Keep-English shows it) |
+| `name_ko`, `name_en` | Korean label on the site; our English name (may end in a note like "(home)" for search; users see `label_en`) |
 | `name_en_site` | The label the site itself shows in English mode, as recorded (may contain entities like `&#38;`; decoded for search and matching). `null` = the site shows no English label |
 | `selector_desktop`, `selector_mobile` | CSS selector per layout. Both `null` = found by its text (`name_ko` or `name_en_site`) |
-| `mobile_path_note` | Hint on how to reach it (shown in the panel when the step is not on the page) |
+| `mobile_path_note` | Hint on how to reach it, for humans (never shown to users) |
 | `frame` | Where it lives, for humans (e.g. an SJPT WebSquare wframe; these are NOT iframes) |
 | `opens_new_tab`, `url`, `description`, `keywords` | New tab on click; direct link; search text; Uzbek/English/Korean synonyms |
 
@@ -130,6 +132,10 @@ Starting a guide from the widget switches it to the compact view.
 - **Starts where you are:** on the library site, a guide to a library page starts on the library, not back at the portal. A result that is only the way into the site you're already on says "You are already in the Library" and offers the best page on this site.
 - **Steps on another site:** when a step is on another site, the status says so and offers **Open Portal** (etc.).
 - **Tabs are reused:** when a step would open another Sejong site in a new tab and a tab of that site is already open, that tab is used instead.
+- **Steps on the page you are on are done:** a step whose link leads to the page the tab already shows (same host and path; a trailing `/`, `#…`, `index.do` and extra query parameters don't matter) is skipped, when the guide starts, after every page load and after `#hash`/`pushState` navigation. On library home the guide starts at the first card, not the logo. A guide started on its target page ends with "You are already on …".
+- **Off-screen targets:** when the step to click is above or below what you see (also inside a scrolling box like the SJPT menu tree), an orange arrow (↑/↓) sits at that edge of the screen. Click it to scroll there; it disappears once the target is in view and the frame shows. The page never scrolls by itself.
+- **Answer cards:** some questions need an explanation, not a menu item. "seat reservation" / "좌석 예약" / "joy band qilish": reading-room seats are issued at the kiosks (1F, 3F, 4F) and can't be booked online; the card says so and offers **See free seats**, **Book a study room**, **Cinema room**, **S-Lounge**. Rules: `data/answers.json` (matched by `extension/shared.js` and `core/answers.py`, kept identical by `tests/test_answers.py`); text: `messages.json`. When a booking guide finishes (libseat opens in a new tab, where the extension does not run), the status says what to do next there.
+- **Keep-English:** a Korean label is replaced by its display label (`label_en`, never "(home)"), as a whole (also when the site splits it over several text nodes), and only where that item's selector matches, so generic labels like "더보기" or "예약" stay as they are elsewhere.
 
 **UI language:** all UI text is in `extension/_locales/<code>/messages.json` (English is complete and the default).
 - Settings → **UI language: Auto** follows Chrome's language. Choosing a language uses that file.
@@ -181,7 +187,7 @@ How a step is found on the page:
 | Request | 200 response body |
 |---------|-------------------|
 | `GET /health` | `{"status": "ok"}` |
-| `GET /search?q=<text>&k=<1..50, default 5>` | `[{...menu item fields, "score": float}, ...]` |
+| `GET /search?q=<text>&k=<1..50, default 5>` | `[{...menu item fields, "score": float}, ...]` (menu item fields include the derived `label_en`, `kind` and `entry_for`) |
 | `GET /route?from=<id>&to=<id>` | `[{...menu item fields}, ...]`: one per step, in click order (`[]` if no path) |
 | `GET /suggest?prefix=<text>` | `["name or keyword", ...]` (max 10) |
 

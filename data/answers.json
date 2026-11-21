@@ -1,0 +1,28 @@
+{
+ "_comment": "AI-generated — to be rewritten by me. Short answer cards shown ABOVE the search results when a question needs an explanation, not just a menu item. Hand-written (not recorded). scripts/build_menu_map.py checks it (item ids exist, message keys exist in extension/_locales/en/messages.json) and copies it to extension/data/answers.json. Matching: core/answers.py and extension/shared.js (answerFor), kept identical by tests/test_answers.py. A trigger matches when all its words are in the question (a, an, the, my, i, to are ignored; apostrophes removed), or, for a Korean trigger, when it is in the question with spaces removed. done_hints: a message shown when a guide to that item finishes.",
+ "version": 1,
+ "answers": [
+  {
+   "id": "seat_booking",
+   "message": "answer_seat_booking",
+   "why": "Reading-room seats are issued at the kiosks (1F A/B reading rooms, 3F, 4F; library page 열람실 좌석배정 이용). libseat roomStatus.php only shows free seats. What CAN be booked online: study rooms, cinema rooms, S-Lounge tables.",
+   "triggers": [
+    "seat reservation", "seats reservation", "reserve seat", "reserve seats", "seat booking",
+    "book seat", "book seats", "booking seat",
+    "좌석 예약", "열람실 예약", "좌석 신청",
+    "joy band", "joy bron", "o'rindiq band", "o'rindiq bron"
+   ],
+   "actions": [
+    {"label": "answer_see_free_seats", "item": "library.seat_status_more"},
+    {"label": "answer_book_studyroom", "item": "library.studyroom_booking"},
+    {"label": "answer_cinema_room", "item": "library.cinemaroom_booking"},
+    {"label": "answer_slounge", "item": "library.slounge_booking"}
+   ]
+  }
+ ],
+ "done_hints": {
+  "library.studyroom_booking": "hint_room_booking",
+  "library.cinemaroom_booking": "hint_room_booking",
+  "library.slounge_booking": "hint_room_booking"
+ }
+}

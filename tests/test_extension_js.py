@@ -23,7 +23,8 @@ needs_jsc = pytest.mark.skipif(not JSC.exists(), reason="needs macOS JavaScriptC
 
 MESSAGES = EXT / "_locales" / "en" / "messages.json"
 # How UI text is used: t("key" ...) in JS (always a literal key), data-i18n*="key" in HTML,
-# __MSG_key__ in the manifest. Keys read directly by code are listed in DIRECT_KEYS.
+# __MSG_key__ in the manifest, and the answer cards' keys in data/answers.json (ui.js shows
+# them with t(answer.message)). Keys read directly by code are listed in DIRECT_KEYS.
 KEY_IN_JS = re.compile(r"\bt\(\s*\"([A-Za-z0-9_@]+)\"")
 KEY_IN_HTML = re.compile(r"data-i18n(?:-[a-z-]+)?=\"([A-Za-z0-9_@]+)\"")
 KEY_IN_MANIFEST = re.compile(r"__MSG_([A-Za-z0-9_@]+)__")
@@ -37,6 +38,10 @@ def used_message_keys():
     for page in EXT.glob("*.html"):
         keys |= set(KEY_IN_HTML.findall(page.read_text(encoding="utf-8")))
     keys |= set(KEY_IN_MANIFEST.findall((EXT / "manifest.json").read_text(encoding="utf-8")))
+    answers = json.loads((ROOT / "data" / "answers.json").read_text(encoding="utf-8"))
+    for answer in answers["answers"]:
+        keys |= {answer["message"], *(a["label"] for a in answer["actions"])}
+    keys |= set(answers["done_hints"].values())
     return keys
 
 

@@ -89,3 +89,7 @@ button.danger { color: var(--accent); }
 .settings summary { cursor: pointer; color: var(--muted); }
 .settings label { display: block; margin: 6px 0; }
 .settings select { padding: 3px 6px; }
+
+/* Answer card (data/answers.json) above the results: the explanation, then one button per item. */
+.answer p { margin: 0 0 6px; }
+.answer .row { flex-wrap: wrap; }

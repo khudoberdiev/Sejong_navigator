@@ -71,7 +71,7 @@ def test_unreachable_items_never_come_back_from_search():
     for query in ("joy band qilish", "seat map", "reserve seat", "열람실 배정현황"):
         ids = [r["id"] for r in core.search(query, 50)]
         assert not any(i.startswith("library.libseat_") for i in ids), (query, ids)
-    assert lexical("joy band qilish", 1) == ["library.seat_status_more"]  # the seat map's keyword
+    assert lexical("seat map", 1) == ["library.seat_status_more"]  # the seat map's own keyword
 
 
 # --------------------------------------------------------------------- priors
@@ -112,6 +112,24 @@ def test_language_institute_grades_still_found_when_asked_for():
 def test_entry_links_rank_below_pages_with_the_same_words():
     ids = lexical("seat reservation", 5)
     assert "portal.library" not in ids[:1], ids
+
+
+@pytest.mark.parametrize("query, expected", [
+    ("book a room", "library.studyroom_booking"), ("study room", "library.studyroom_booking"),
+    ("스터디룸 예약", "library.studyroom_booking"), ("group study", "library.studyroom_booking"),
+    ("cinema room", "library.cinemaroom_booking"), ("시네마룸", "library.cinemaroom_booking"),
+    ("S-Lounge", "library.slounge_booking"), ("라운지 예약", "library.slounge_booking"),
+])
+def test_booking_buttons_beat_the_info_pages(query, expected):
+    # the GO buttons on library home, not 스터디룸 안내 및 예약 (rules) or 시설이용 (folder)
+    assert lexical(query, 1) == [expected], lexical(query)
+
+
+def test_free_seats_is_seat_status_not_booking():
+    assert lexical("free seats", 1) == ["library.seat_status_more"]
+    assert lexical("좌석 현황", 1) == ["library.seat_status_more"]
+    keywords = {k.lower() for k in load_menu_items()["library.seat_status_more"].keywords}
+    assert not any("reserv" in k or "예약" in k or "band" in k for k in keywords), keywords
 
 
 def test_scores_stay_in_range_and_results_carry_kind():

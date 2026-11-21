@@ -17,14 +17,23 @@ build adds the links that routing needs:
     (likewise e-Campus under portal.ecampus and the library under portal.library).
 
 Checks (the build stops and lists every problem): field names and types, known
-sites, unique ids, every parent_id exists, no cycles, a single root, and links
-between sites only through ENTRY_POINTS.
+sites, unique ids, every parent_id exists, no cycles, a single root, links
+between sites only through ENTRY_POINTS, and no URL with a login token or
+session in its query (libseat links carry ?token=...: store them without it).
+
+The output adds one derived field, label_en: the English label users see
+(core.models.display_label_en: the site's own English label, else name_en without
+a note like "(home)" that only tells our items apart).
+
+data/answers.json (answer cards, hand-written) is checked against the built items
+and extension/_locales/en/messages.json, and copied to extension/data/answers.json.
 """
 from __future__ import annotations
 
 import argparse
 import html
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -32,11 +41,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.models import SITES  # noqa: E402  (needs the sys.path line above)
+from core.models import SITES, display_label_en  # noqa: E402  (needs the sys.path line above)
 
 RAW_DIR = ROOT / "data" / "raw"
 OUTPUT = ROOT / "data" / "menu_map.json"
 EXTENSION_COPY = ROOT / "extension" / "data" / "menu_map.json"
+ANSWERS = ROOT / "data" / "answers.json"
+ANSWERS_COPY = ROOT / "extension" / "data" / "answers.json"
+MESSAGES = ROOT / "extension" / "_locales" / "en" / "messages.json"
+# A query parameter that identifies a login or a person: never stored (privacy).
+SENSITIVE_QUERY = re.compile(r"[?&;](token|session|sessionid|sid|jsessionid|auth|ticket|key)=", re.IGNORECASE)
 
 # Field name -> allowed JSON types. The output keeps this order.
 STR, OPT_STR = (str,), (str, type(None))
@@ -46,6 +60,10 @@ FIELDS = {
     "mobile_path_note": OPT_STR, "frame": OPT_STR, "opens_new_tab": (bool,),
     "description": STR, "keywords": (list,),
 }
+
+# Output field order: FIELDS with the derived label_en after name_en_site.
+OUTPUT_ORDER = [f for f in FIELDS]
+OUTPUT_ORDER.insert(OUTPUT_ORDER.index("name_en_site") + 1, "label_en")
 
 ROOT_ID = "portal.root"
 SYNTHETIC_ROOT = {
@@ -107,6 +125,8 @@ def _shape_problems(source: str, item) -> list[str]:
         problems.append(f"{where}: keywords must be non-empty strings")
     if isinstance(item.get("site"), str) and item["site"] not in SITES:
         problems.append(f"{where}: unknown site {item['site']!r}")
+    if isinstance(item.get("url"), str) and SENSITIVE_QUERY.search(item["url"]):
+        problems.append(f"{where}: url carries a login token or session; store it without the query")
     return problems
 
 
@@ -188,7 +208,9 @@ def build(raw_dir: Path = RAW_DIR) -> tuple[list[dict], dict]:
     if problems:
         raise MenuMapError(problems)
 
-    ordered = list(items.values())
+    for item in items.values():  # derived: what users see (never "(home)")
+        item["label_en"] = display_label_en(item["name_en"], item["name_en_site"])
+    ordered = [{k: i[k] for k in OUTPUT_ORDER} for i in items.values()]
     summary = {
         "files": sorted({source for source, _ in entries}),
         "items": len(ordered),
@@ -203,6 +225,38 @@ def build(raw_dir: Path = RAW_DIR) -> tuple[list[dict], dict]:
         "max_depth": max(_depth(items, i["id"]) for i in ordered),
     }
     return ordered, summary
+
+
+def check_answers(answers: dict, items: list[dict], messages: dict) -> list[str]:
+    """Problems in data/answers.json: unknown item ids or message keys, empty triggers."""
+    ids = {i["id"] for i in items}
+    problems = []
+    seen = set()
+    for answer in answers.get("answers", []):
+        aid = answer.get("id")
+        if not aid or aid in seen:
+            problems.append(f"answers.json: missing or duplicate answer id {aid!r}")
+        seen.add(aid)
+        if answer.get("message") not in messages:
+            problems.append(f"answers.json: {aid}: message {answer.get('message')!r} is not in messages.json")
+        if not answer.get("triggers") or not all(isinstance(t, str) and t.strip() for t in answer["triggers"]):
+            problems.append(f"answers.json: {aid}: triggers must be non-empty strings")
+        for action in answer.get("actions", []):
+            if action.get("item") not in ids:
+                problems.append(f"answers.json: {aid}: unknown item {action.get('item')!r}")
+            if action.get("label") not in messages:
+                problems.append(f"answers.json: {aid}: label {action.get('label')!r} is not in messages.json")
+    for item_id, key in answers.get("done_hints", {}).items():
+        if item_id not in ids:
+            problems.append(f"answers.json: done_hints: unknown item {item_id!r}")
+        if key not in messages:
+            problems.append(f"answers.json: done_hints: {key!r} is not in messages.json")
+    return problems
+
+
+def render_answers(answers: dict) -> str:
+    """The exact text of extension/data/answers.json."""
+    return json.dumps(answers, ensure_ascii=False, indent=1) + "\n"
 
 
 def _depth(items: dict[str, dict], item_id: str) -> int:
@@ -235,7 +289,7 @@ def print_summary(summary: dict, wrote: bool) -> None:
         print(f"name_en_site with HTML entities (decoded when matching): {', '.join(summary['html_entities'])}")
     print("checks passed: fields, sites, unique ids, parents exist, no cycles, one root, cross-site links")
     if wrote:
-        print(f"wrote {OUTPUT.relative_to(ROOT)} and {EXTENSION_COPY.relative_to(ROOT)}")
+        print(f"wrote {OUTPUT.relative_to(ROOT)}, {EXTENSION_COPY.relative_to(ROOT)} and {ANSWERS_COPY.relative_to(ROOT)}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -250,15 +304,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {problem}", file=sys.stderr)
         return 1
     text = render(items)
+    answers = json.loads(ANSWERS.read_text(encoding="utf-8"))
+    problems = check_answers(answers, items, json.loads(MESSAGES.read_text(encoding="utf-8")))
+    if problems:
+        print(f"answers NOT built, {len(problems)} problem(s):", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+    outputs = {OUTPUT: text, EXTENSION_COPY: text, ANSWERS_COPY: render_answers(answers)}
     if args.check:
-        stale = [p for p in (OUTPUT, EXTENSION_COPY) if not p.exists() or p.read_text(encoding="utf-8") != text]
+        stale = [p for p, want in outputs.items() if not p.exists() or p.read_text(encoding="utf-8") != want]
         print_summary(summary, wrote=False)
         for path in stale:
             print(f"OUT OF DATE: {path.relative_to(ROOT)} (run scripts/build_menu_map.py)", file=sys.stderr)
         return 1 if stale else 0
-    for path in (OUTPUT, EXTENSION_COPY):
+    for path, want in outputs.items():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(want, encoding="utf-8")
     print_summary(summary, wrote=True)
     return 0
 

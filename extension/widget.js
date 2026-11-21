@@ -104,6 +104,8 @@
       if (destroyed) return;
       const guide = state && S.isGuide(state.guide) ? state.guide : null;
       compactEmpty.hidden = !!guide;
+      // After a guide ends: "Done: …" plus what to do next where the guide cannot follow (libseat).
+      compactEmpty.textContent = (state && S.finishedMessage(state.last, t)) || t("no_guide_running");
       compactStop.hidden = !guide;
       compactCrumbs.hidden = !guide;
       if (guide) {

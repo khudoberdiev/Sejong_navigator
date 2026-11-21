@@ -20,6 +20,15 @@ question text. The mapping was fixed before the new results were seen:
   library.room_booking     -> library.fac_studyroom   (study room info and booking)
   ecampus.assignments      -> ecampus.my_courses  (assignments live inside each course;
                               the course dashboard is the deepest mapped page)
+
+2026-11-21 (Problem N), fixed before the new results were seen:
+  library.room_booking     -> library.studyroom_booking  (was library.fac_studyroom; the original
+                              id said BOOKING, and the study room is booked with the GO button on
+                              library home, which is now in the data; the info page is the rules)
+  The four Problem M seat questions ("seat reservation", ...) expected library.seat_status_more.
+  That link only SHOWS free seats: reading-room seats are issued at the kiosks and cannot be
+  booked online. They moved to ANSWER_QUESTIONS: the right answer is the kiosk answer card
+  (data/answers.json), not a menu item.
 """
 
 QUESTIONS = [
@@ -33,7 +42,7 @@ QUESTIONS = [
     ("uz", "dars jadavli", "sjpt.registered_courses_inquiry_print", "typo"),
     ("uz", "o'qituvchini baholash so'rovnomasi", "sjpt.course_evaluation", "suffix -si"),
     ("uz", "oldingi semestrlardagi barcha baholarim", "sjpt.completed_grades_inquiry", "suffixes, close to grade_current"),
-    ("uz", "kutubxonada o'qish uchun xona band qilmoqchiman", "library.fac_studyroom", "long sentence"),
+    ("uz", "kutubxonada o'qish uchun xona band qilmoqchiman", "library.studyroom_booking", "long sentence"),
     # ---------------------------------------------------------------- English
     ("en", "where are my grades?", "sjpt.current_semester_grades", "the headline case"),
     ("en", "grdaes", "sjpt.current_semester_grades", "typo"),
@@ -43,7 +52,7 @@ QUESTIONS = [
     ("en", "my weekly class schedule", "sjpt.registered_courses_inquiry_print", ""),
     ("en", "where can I watch recorded lectures", "ecampus.my_courses", "few shared words"),
     ("en", "official transcript of all my past semesters", "sjpt.completed_grades_inquiry", "close to grade_current"),
-    ("en", "reserve a quiet place to study", "library.fac_studyroom", "few shared words"),
+    ("en", "reserve a quiet place to study", "library.studyroom_booking", "few shared words"),
     ("en", "change my phone number and address", "sjpt.personal_information_management", "no shared words"),
     # ---------------------------------------------------------------- Korean
     ("ko", "성적조회", "sjpt.current_semester_grades", "no spaces"),
@@ -55,7 +64,7 @@ QUESTIONS = [
     ("ko", "수강 신청 내역", "sjpt.registered_courses_inquiry_print", "spacing differs from keywords"),
     ("ko", "교수님 평가하기", "sjpt.course_evaluation", "no exact shared words"),
     ("ko", "장학금 받으려면", "sjpt.scholarship_registration_student_support", "verb ending"),
-    ("ko", "도서관 스터디룸 예약", "library.fac_studyroom", ""),
+    ("ko", "도서관 스터디룸 예약", "library.studyroom_booking", ""),
     # ---------------------------------------------------------------- added 2026-11-21 (Problem M)
     # Intent over labels: the real page, not a folder ("성적", "성적 및 강의평가"), not the
     # Sejong Language Institute's "Grade", not an entry link (portal.library).
@@ -63,10 +72,30 @@ QUESTIONS = [
     ("en", "my grades", "sjpt.current_semester_grades", ""),
     ("uz", "baholarim", "sjpt.current_semester_grades", ""),
     ("ko", "성적", "sjpt.current_semester_grades", "exact name of two folders"),
-    # Booking a reading-room seat: the link that opens the libseat booking system. The info
-    # page library.fs_seat (열람실 좌석배정 이용) should come second.
-    ("en", "seat reservation", "library.seat_status_more", "info page and portal.library compete"),
-    ("en", "book a seat", "library.seat_status_more", ""),
-    ("uz", "joy band qilish", "library.seat_status_more", "the seat map itself is on libseat (unreachable)"),
-    ("ko", "좌석 예약", "library.seat_status_more", "spacing differs from keywords"),
+    # ---------------------------------------------------------------- added 2026-11-21 (Problem N)
+    # Online booking: the GO / ↗ buttons on library home (libseat), not the info pages.
+    ("en", "book a room", "library.studyroom_booking", "sjpt facility booking competes"),
+    ("en", "study room", "library.studyroom_booking", "info page 스터디룸 안내 및 예약 competes"),
+    ("ko", "스터디룸 예약", "library.studyroom_booking", ""),
+    ("uz", "xona band qilish", "library.studyroom_booking", ""),
+    ("en", "cinema room", "library.cinemaroom_booking", ""),
+    ("ko", "시네마룸", "library.cinemaroom_booking", ""),
+    ("en", "S-Lounge", "library.slounge_booking", "info page S-Lounge 안내 및 예약 competes"),
+    ("ko", "라운지 예약", "library.slounge_booking", ""),
+]
+
+# Questions whose answer is an answer card (data/answers.json), not a menu item:
+# (language, question, expected answer id or None, note). Checked by eval/run_eval.py
+# (core/answers.py) and tests/test_answers.py.
+ANSWER_QUESTIONS = [
+    # Reading-room seats are issued at the kiosks (1F, 3F, 4F): the card says so and offers
+    # free seats, study room, cinema room and S-Lounge booking. (Problem M expected
+    # library.seat_status_more for these four; see the docstring.)
+    ("en", "seat reservation", "seat_booking", ""),
+    ("en", "book a seat", "seat_booking", ""),
+    ("ko", "좌석 예약", "seat_booking", ""),
+    ("uz", "joy band qilish", "seat_booking", ""),
+    # ...and booking a ROOM is not a seat question
+    ("en", "book a room", None, "no card: the study room result answers it"),
+    ("en", "free seats", None, "no card: seat_status_more answers it"),
 ]

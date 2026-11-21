@@ -346,9 +346,54 @@
     return !!m && !!siteForHost(m[1]) && !framesAnswered;
   }
 
-  // English label for breadcrumbs and the pointer: the site's own English label if it has one.
+  // English label users see (breadcrumbs, results, status): label_en from the menu map (the
+  // site's own English label, else name_en without a note like "(home)" that only tells our
+  // items apart; scripts/build_menu_map.py), else the raw names (recorded items).
   function englishName(item) {
-    return cleanLabel(decodeEntities((item && (item.name_en_site || item.name_en)) || ""));
+    return cleanLabel(decodeEntities((item && (item.label_en || item.name_en_site || item.name_en)) || ""));
+  }
+
+  // ------------------------------------------------------------------ keep-English labels
+
+  // Several menu items can share a Korean label ("예약", "더보기"). entries: [{en, selectors}]
+  // for one Korean label; matches(selector) → does the element holding the text match it?
+  // An entry with selectors applies only where one of them matches (so "더보기" becomes
+  // "More seat status" only on that link); an entry without selectors applies anywhere.
+  //   → the English label, or null (leave the site's text alone)
+  function pickEnglish(entries, matches) {
+    for (const entry of entries || []) {
+      const selectors = entry.selectors || [];
+      if (!selectors.length) return entry.en;
+      if (selectors.some((sel) => { try { return matches(sel); } catch (e) { return false; } })) return entry.en;
+    }
+    return null;
+  }
+
+  // One text node of a clickable element may stand for the whole label when the rest of the
+  // element's text is only a badge ("N", "new", a count): "학사정보" in "학사정보 N". Not when
+  // the rest is a word: "예약" in "S-Lounge 예약" is half a label (replacing it gave
+  // "S-Lounge S-Lounge booking").
+  function nodeIsWholeLabel(nodeLabel, ownerLabel) {
+    const node = labelKey(nodeLabel);
+    const owner = labelKey(ownerLabel);
+    if (!node || owner.indexOf(node) < 0) return false;
+    const rest = owner.replace(node, "").replace(/\s+/g, "");
+    return rest.length <= 3 && !hasHangul(rest);
+  }
+
+  // Replace a label's WHOLE text, also when the site split it over several text nodes
+  // ("<b>스터디룸</b> 예약"): the first non-empty node gets the English label (its surrounding
+  // spaces kept), the others become empty. Never prepends or appends to the site's text.
+  //   values: the nodes' current texts → the new texts, same length
+  function replaceLabelText(values, english) {
+    let placed = false;
+    return (values || []).map((v) => {
+      const text = String(v == null ? "" : v);
+      if (!text.trim()) return text;
+      if (placed) return "";
+      placed = true;
+      return text.replace(/\S[\s\S]*\S|\S/, () => english);
+    });
   }
 
   // Rows for the popup's review list (site roots left out).
@@ -505,6 +550,120 @@
 
 
 
+  // ------------------------------------------------------------------ same-page steps
+
+  // A URL reduced to what decides "the same page": host + path, with a trailing "/" and a
+  // trailing index.do/index.html/... removed, ";jsessionid" dropped, #hash ignored; the query
+  // as {name: value}. → {host, path, query} or null (no http(s) URL)
+  function pageKey(url) {
+    const m = /^https?:\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?/i.exec(String(url || "").trim());
+    if (!m) return null;
+    const path = m[2].replace(/;jsessionid=[^/?#]*/gi, "")
+      .replace(/\/index\.(?:do|html?|jsp|php|aspx?)$/i, "/").replace(/\/+$/, "");
+    const query = {};
+    for (const pair of (m[3] || "").split("&").filter(Boolean)) {
+      const eq = pair.indexOf("=");
+      query[eq < 0 ? pair : pair.slice(0, eq)] = eq < 0 ? "" : pair.slice(eq + 1);
+    }
+    return { host: m[1].toLowerCase().replace(/:(?:80|443)$/, ""), path, query };
+  }
+
+  // Is the page at pageUrl the page that stepUrl opens? Same host and path (see pageKey). The
+  // page's query is ignored (logins add ?token=..., sites add paging), except that parameters
+  // the STEP's url names must be there with the same value: board ?id=1 is not board ?id=2.
+  function samePage(stepUrl, pageUrl) {
+    const a = pageKey(stepUrl);
+    const b = pageKey(pageUrl);
+    if (!a || !b || a.host !== b.host || a.path !== b.path) return false;
+    return Object.keys(a.query).every((k) => b.query[k] === a.query[k]);
+  }
+
+  // A link's href attribute that really leads somewhere ("#", "#top", "javascript:..." and an
+  // empty href only toggle menus: they never count as "this page").
+  function isRealLink(rawHref) {
+    const href = String(rawHref || "").trim();
+    return !!href && href[0] !== "#" && !/^javascript:/i.test(href);
+  }
+
+  // Route steps (index >= 1) whose url is the page the tab is on.
+  function stepsOnPage(route, pageUrl) {
+    const out = [];
+    (route || []).forEach((item, i) => { if (i >= 1 && item && item.url && samePage(item.url, pageUrl)) out.push(i); });
+    return out;
+  }
+
+  // Steps the student has already done because they are ON that step's page (here: indices
+  // from stepsOnPage plus the frames' "highlighted link points here" answers). Everything up to
+  // the deepest one is done; the saved step only moves forward.
+  //   → { step, finished: true when the target page itself is open, done: deepest index or -1 }
+  function skipDoneSteps(guide, here) {
+    const last = guide.route.length - 1;
+    const seen = (here || []).filter((i) => Number.isInteger(i) && i >= 1 && i <= last);
+    const done = seen.length ? Math.max.apply(null, seen) : -1;
+    if (done === last) return { step: guide.step, finished: true, done };
+    return { step: Math.max(guide.step, done + 1), finished: false, done };
+  }
+
+  // ------------------------------------------------------------------ off-screen target
+
+  // The target is outside the part of the page the student sees (above or below the window,
+  // or scrolled away inside a scrolling box such as the SJPT menu tree): an orange arrow sits
+  // at that edge, at the target's x (clamped), until the target is in view.
+  //   rect: the target's highlight-frame box; view: the visible area (the window, cut down to
+  //   the scrolling boxes around the target), both in viewport px; size: the arrow's {width, height}.
+  //   → null when the target is in view (the frame shows), else {dir: "up"|"down", x, y}
+  const ARROW_MARGIN = 8;
+  const MIN_SHOWN = 16; // px of the target that must be visible to count as "in view"
+  function offscreenArrow(rect, view, size, margin) {
+    const m = margin === undefined ? ARROW_MARGIN : margin;
+    const shown = Math.min(rect.bottom, view.bottom) - Math.max(rect.top, view.top);
+    if (shown >= Math.min(rect.bottom - rect.top, MIN_SHOWN)) return null;
+    const dir = rect.top + rect.bottom < view.top + view.bottom ? "up" : "down";
+    const center = (rect.left + rect.right) / 2;
+    const minX = view.left + m;
+    const maxX = Math.max(minX, view.right - size.width - m);
+    const x = Math.round(Math.min(Math.max(center - size.width / 2, minX), maxX));
+    const y = Math.round(dir === "up" ? view.top + m : Math.max(view.top + m, view.bottom - size.height - m));
+    return { dir, x, y };
+  }
+
+  // The visible area: the window cut down to each box (the scrolling ancestors' rects). If
+  // nothing is left (the scrolling box itself is off screen), the window: scroll the page first.
+  function visibleArea(viewport, boxes) {
+    const win = { left: 0, top: 0, right: viewport.width, bottom: viewport.height };
+    let r = win;
+    for (const b of boxes || []) {
+      r = { left: Math.max(r.left, b.left), top: Math.max(r.top, b.top), right: Math.min(r.right, b.right), bottom: Math.min(r.bottom, b.bottom) };
+    }
+    return r.right - r.left >= 1 && r.bottom - r.top >= 1 ? r : win;
+  }
+
+  // ------------------------------------------------------------------ answer cards (data/answers.json)
+
+  // Same rules as core/answers.py (tests/test_answers.py runs both on the same questions).
+  const ANSWER_STOPWORDS = ["a", "an", "the", "my", "i", "to"];
+  function answerTokens(text) {
+    return String(text == null ? "" : text).toLowerCase().replace(/['ʻʼ‘’`]/g, "")
+      .replace(/[^\p{L}\p{N}]+/gu, " ").split(" ").filter((w) => w && ANSWER_STOPWORDS.indexOf(w) < 0);
+  }
+  function triggerMatches(trigger, question) {
+    const want = answerTokens(trigger);
+    const have = answerTokens(question);
+    if (want.length && want.every((w) => have.indexOf(w) >= 0)) return true;
+    return want.length > 0 && hasHangul(trigger) && have.join("").indexOf(want.join("")) >= 0;
+  }
+  // rules: the parsed answers.json → the first matching answer, or null
+  function answerFor(rules, question) {
+    for (const answer of (rules && rules.answers) || []) {
+      if ((answer.triggers || []).some((t) => triggerMatches(t, question))) return answer;
+    }
+    return null;
+  }
+  // The message key shown when a guide to targetId finishes, or null.
+  function doneHint(rules, targetId) {
+    return (rules && rules.done_hints && rules.done_hints[targetId]) || null;
+  }
+
   // ------------------------------------------------------------------ sites in the guide
 
   // A site's name for users (never the internal code). inSentence: the form that follows
@@ -625,7 +784,9 @@
     const step = guide.route[guide.step];
     const shown = guide.route[info.index];
     const of = t("step_of", [guide.step, last]);
-    const newTab = (item) => (item && item.opens_new_tab ? " " + t("hint_new_tab") : "");
+    // A new tab on a Sejong site: the guide continues there. Elsewhere (libseat): it does not.
+    const newTab = (item) => (!item || !item.opens_new_tab ? ""
+      : " " + (item.url && !siteOfUrl(item.url) ? t("hint_new_tab_external") : t("hint_new_tab")));
     switch (info.kind) {
       case "here": return t("status_here", [bothNames(shown)]);
       case "next": return t("status_next", [info.index, last, bothNames(shown)]) + newTab(shown);
@@ -640,12 +801,21 @@
     }
   }
 
+  // How the last guide ended (guideLast from background.js), or "" if it did not finish.
+  //   already: it was started on the target page itself; hint: a message key for what to do
+  //   next where the guide cannot follow (data/answers.json done_hints, e.g. on libseat).
+  function finishedMessage(last, t) {
+    if (!last || last.outcome !== "finished") return "";
+    const done = last.already ? t("already_here", [last.name]) : t("guide_done", [last.name]);
+    return last.hint ? done + " " + t(last.hint) : done;
+  }
+
   // The status line when the shown path is NOT the running guide.
   function idleMessage(path, targetId, guide, last, t) {
     if ((path || []).length < 2) return t("no_click_path");
     if (guide) return t("other_guide_running", [nameOf(guide.route[guide.route.length - 1])]);
     if (last && last.targetId === targetId) {
-      return last.outcome === "finished" ? t("guide_done", [last.name]) : t("guide_stopped");
+      return last.outcome === "finished" ? finishedMessage(last, t) : t("guide_stopped");
     }
     return "";
   }
@@ -720,6 +890,10 @@
     stableId, newStore, applyClick, applyScan, undo, deleteItem, displayName, listForReview,
     toMenuMap, mergeMenuMap,
     decodeEntities, labelKey, siteNames, selectorsFor, labelMatches, pickCandidate, boxIsShown, englishName,
+    pickEnglish, replaceLabelText,
+    pageKey, samePage, isRealLink, stepsOnPage, skipDoneSteps,
+    ARROW_MARGIN, MIN_SHOWN, offscreenArrow, visibleArea, nodeIsWholeLabel,
+    answerTokens, triggerMatches, answerFor, doneHint, finishedMessage,
     FRAME_PAD, FRAME_BORDER, frameGeometry, contentScriptMissing,
     newGuide, isGuide, pickStep, advanceGuide, korOnlyStep, guideStatus,
     formatMessage, makeTranslator, nameOf, bothNames, crumbsModel, guideMessage, idleMessage,

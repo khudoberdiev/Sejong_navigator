@@ -62,9 +62,10 @@ def _info() -> dict[str, ranking.ItemInfo]:
 
 
 def _item_dict(item: MenuItem) -> dict:
-    """What servers send for one item: its fields + kind ("page"|"folder"|"entry") + entry_for."""
+    """What servers send for one item: its fields + label_en (the English label to display),
+    kind ("page"|"folder"|"entry") and entry_for."""
     info = _info()[item.id]
-    return {**item.to_dict(), "kind": info.kind, "entry_for": info.entry_for}
+    return {**item.to_dict(), "label_en": item.label_en, "kind": info.kind, "entry_for": info.entry_for}
 
 
 @lru_cache(maxsize=1)

@@ -18,6 +18,10 @@
 // Internal fields (selectors, mobile_path_note, ids, site codes) are never shown.
 // The click path starts where the student is (S.trimRouteForSite): on the library site, a guide
 // to a library page does not send them back to the portal first.
+// Answer card: some questions need a short explanation before any result ("seat reservation":
+// reading-room seats are issued at the kiosks, not booked online). background.js matches the
+// question against data/answers.json; the card shows above the results with one button per
+// item that does exist (free seats, room booking). Its text is in messages.json.
 (function (root) {
   "use strict";
 
@@ -48,7 +52,7 @@
     // ---- model: survives a rebuild (UI language change)
     // path: the full route from the backend (from portal.root); shown and started trimmed to the
     // tab's site. notice: "You are already in the Library" + the better result it offers.
-    const model = { query: "", results: null, chosen: -1, searching: false, path: [], targetId: null, error: "", notice: null };
+    const model = { query: "", results: null, chosen: -1, searching: false, path: [], targetId: null, error: "", notice: null, answer: null };
     const settings = { keepEnglish: true, translatePopups: true, display: "widget", uiLanguage: "auto" };
     let languages = [];
     let parts = null;
@@ -76,6 +80,9 @@
       const noticeText = el("span");
       const noticeButton = el("button", { class: "primary" });
       const notice = el("div", { class: "banner notice", hidden: true }, noticeText, el("div", { class: "row" }, noticeButton));
+      const answerText = el("p");
+      const answerButtons = el("div", { class: "row" });
+      const answer = el("div", { class: "banner notice answer", hidden: true }, answerText, answerButtons);
       const route = el("div", { class: "route", hidden: true },
         el("h3", { text: t("click_path") }), crumbs, el("div", { class: "row" }, start, open, stop), status);
       const error = el("p", { class: "banner", hidden: !model.error, text: model.error });
@@ -102,9 +109,10 @@
         displayHint,
         select("uiLanguage", [["auto", t("ui_language_auto")], ...languages.map((l) => [l.code, l.name])], t("setting_ui_language")));
 
-      container.replaceChildren(error, el("div", { class: "search-box" }, q, suggestions), results, notice, route, settingsBox);
-      parts = { q, suggestions, results, route, crumbs, start, open, stop, status, error, notice, noticeText, noticeButton };
+      container.replaceChildren(error, el("div", { class: "search-box" }, q, suggestions), answer, results, notice, route, settingsBox);
+      parts = { q, suggestions, results, route, crumbs, start, open, stop, status, error, notice, noticeText, noticeButton, answer, answerText, answerButtons };
       wire();
+      renderAnswer();
       renderResults();
       renderNotice();
       renderGuide();
@@ -191,8 +199,11 @@
       model.query = text;
       model.searching = true;
       model.results = null;
+      model.answer = null;
       parts.route.hidden = true;
+      renderAnswer();
       renderResults();
+      const answer = adapter.send({ type: "ui:answer", query: text }).catch(() => null);
       try {
         model.results = await adapter.send({ type: "api:search", query: text, k: CONFIG.SEARCH_K });
         model.error = "";
@@ -201,10 +212,29 @@
         model.results = [];
         showError(e);
       }
+      model.answer = await answer;
       model.searching = false;
       if (destroyed) return;
+      renderAnswer();
       renderResults();
-      if (model.results.length) choose(0); // show the path of the best result right away
+      // Show the path of the best result right away, unless an answer card explains first.
+      if (model.results.length && !model.answer) choose(0);
+    }
+
+    function renderAnswer() {
+      const a = model.answer;
+      parts.answer.hidden = !a;
+      if (!a) return;
+      parts.answerText.textContent = t(a.message);
+      parts.answerButtons.replaceChildren(...a.actions.map((action) => {
+        const button = el("button", { text: t(action.label) });
+        button.addEventListener("click", () => {
+          model.chosen = model.results ? model.results.findIndex((r) => r.id === action.item.id) : -1;
+          renderResults();
+          showItem(action.item);
+        });
+        return button;
+      }));
     }
 
     function renderResults() {

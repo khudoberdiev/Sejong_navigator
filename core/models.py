@@ -3,10 +3,24 @@
 from __future__ import annotations
 
 import html
+import re
 from dataclasses import asdict, dataclass
 from typing import Optional
 
 SITES = ("portal", "sjpt", "ecampus", "library")
+
+# Notes in name_en that only tell OUR items apart ("Study room booking (home)" vs the menu
+# entry): useful to search, never shown. label_en drops them.
+DISPLAY_NOTES = ("home", "footer", "quick menu", "dashboard", "libseat", "links tab", "header", "sub-page")
+_NOTE = re.compile(r"\s*\((?:" + "|".join(re.escape(n) for n in DISPLAY_NOTES) + r")\)\s*$", re.IGNORECASE)
+
+
+def display_label_en(name_en: str, name_en_site: Optional[str]) -> str:
+    """The English label users see (breadcrumbs, results, Keep-English on the page): the site's
+    own English label if it has one, else name_en without a trailing note like "(home)"."""
+    if name_en_site and name_en_site.strip():
+        return html.unescape(name_en_site).strip()
+    return _NOTE.sub("", name_en or "").strip()
 
 
 @dataclass(frozen=True)
@@ -52,6 +66,11 @@ class MenuItem:
     def site_label_en(self) -> Optional[str]:
         """name_en_site with HTML entities decoded ("Q&#38;A" -> "Q&A"), or None."""
         return html.unescape(self.name_en_site).strip() if self.name_en_site else None
+
+    @property
+    def label_en(self) -> str:
+        """English label for display (display_label_en). Search still uses name_en."""
+        return display_label_en(self.name_en, self.name_en_site)
 
     def names(self) -> list[str]:
         """name_ko, name_en and the site's English label, without duplicates, in that order."""

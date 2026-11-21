@@ -68,4 +68,4 @@ def test_output_format_unchanged():
     result = core.search("grades", 1)[0]
     assert set(result) == {"id", "site", "name_ko", "name_en", "name_en_site", "parent_id", "url",
                            "selector_desktop", "selector_mobile", "mobile_path_note", "frame",
-                           "opens_new_tab", "description", "keywords", "kind", "entry_for", "score"}
+                           "opens_new_tab", "description", "keywords", "label_en", "kind", "entry_for", "score"}

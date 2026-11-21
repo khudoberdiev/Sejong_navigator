@@ -12,7 +12,8 @@ from pathlib import Path
 
 from core import navigator
 from core.data import menu_map_path
-from eval.questions import QUESTIONS
+from core.answers import answer_for
+from eval.questions import ANSWER_QUESTIONS, QUESTIONS
 from ml.embedder import DEFAULT_MODEL
 
 LANGS = ("uz", "en", "ko")
@@ -91,6 +92,15 @@ def main() -> None:
         lines.append(f"| {lang} | {question} | `{expected}` | {', '.join(f'`{i}`' for i in ids)} | {note} |")
     if not hybrid_failures:
         lines.append("| | (none) | | | |")
+
+    right = sum((answer_for(q) or {}).get("id") == expected for _, q, expected, _ in ANSWER_QUESTIONS)
+    lines += ["", "## Answer cards (data/answers.json)", "",
+              f"{right}/{len(ANSWER_QUESTIONS)} questions get the expected card (or correctly none). "
+              "Not search: these are matched by core/answers.py.", "",
+              "| lang | question | expected card | got |", "|---|---|---|---|"]
+    for lang, question, expected, _ in ANSWER_QUESTIONS:
+        got = (answer_for(question) or {}).get("id")
+        lines.append(f"| {lang} | {question} | {expected or '(none)'} | {got or '(none)'}{'' if got == expected else ' ✗'} |")
 
     # Written by ml/finetune.py; kept here so this file always has the full picture.
     if FINETUNE_RESULTS.exists():

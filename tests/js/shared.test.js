@@ -695,5 +695,149 @@ test("pickTabForSite: reuse the most recently used tab of that site, never the c
   eq(S.pickTabForSite(null, "library", 1), null);
 });
 
+// ------------------------------------------------------------------ Problem N
+
+// 1. Same-page steps: URL matching
+test("samePage: trailing slash, #hash, index.do, extra query on the page (fix 1)", () => {
+  const home = "https://library.sejong.ac.kr/";
+  for (const page of ["https://library.sejong.ac.kr", "https://library.sejong.ac.kr/", "https://library.sejong.ac.kr/#",
+    "https://library.sejong.ac.kr/#content", "https://library.sejong.ac.kr/index.do", "https://LIBRARY.sejong.ac.kr/index.do?lang=en",
+    "https://library.sejong.ac.kr/?token=abc", "http://library.sejong.ac.kr:443/"]) {
+    ok(S.samePage(home, page), page);
+  }
+  ok(S.samePage("https://library.sejong.ac.kr/webcontent/info/22/", "https://library.sejong.ac.kr/webcontent/info/22#top"));
+  ok(S.samePage("https://library.sejong.ac.kr/myloan/list", "https://library.sejong.ac.kr/myloan/list;jsessionid=XYZ?page=2"));
+  ok(!S.samePage(home, "https://library.sejong.ac.kr/webcontent/info/22"), "another page");
+  ok(!S.samePage(home, "https://portal.sejong.ac.kr/"), "another host");
+  ok(!S.samePage("https://library.sejong.ac.kr/webcontent/info/22", "https://library.sejong.ac.kr/webcontent/info/2"));
+  // the step's own query must match: board ?id=1 is not board ?id=2
+  ok(S.samePage("https://ecampus.sejong.ac.kr/mod/ubboard/view.php?id=1", "https://ecampus.sejong.ac.kr/mod/ubboard/view.php?id=1&page=3"));
+  ok(!S.samePage("https://ecampus.sejong.ac.kr/mod/ubboard/view.php?id=1", "https://ecampus.sejong.ac.kr/mod/ubboard/view.php?id=2"));
+  ok(!S.samePage(null, home) && !S.samePage(home, "") && !S.samePage("javascript:void(0)", home));
+});
+
+test("isRealLink: menu toggles never count as 'this page'", () => {
+  for (const href of ["#", "#top", "javascript:void(0)", " JavaScript:fn()", "", null]) ok(!S.isRealLink(href), String(href));
+  for (const href of ["/", "/webcontent/info/22", "https://library.sejong.ac.kr/"]) ok(S.isRealLink(href), href);
+});
+
+const HOME_ROUTE = [
+  { id: "portal.library", site: "portal", url: "https://library.sejong.ac.kr/" },  // route[0]: never a step
+  { id: "library.home", site: "library", url: "https://library.sejong.ac.kr/" },
+  { id: "library.seat_status", site: "library", url: null },
+  { id: "library.seat_status_more", site: "library", url: "https://libseat.sejong.ac.kr/mobile/PA/roomStatus.php", opens_new_tab: true },
+];
+
+test("stepsOnPage + skipDoneSteps: the logo step is done on the library home page (bug A)", () => {
+  const g = S.newGuide(HOME_ROUTE, null, 1);
+  eq(S.stepsOnPage(HOME_ROUTE, "https://library.sejong.ac.kr/#"), [1]);       // route[0] is skipped
+  eq(S.skipDoneSteps(g, S.stepsOnPage(HOME_ROUTE, "https://library.sejong.ac.kr/index.do")), { step: 2, finished: false, done: 1 });
+  eq(S.skipDoneSteps(g, S.stepsOnPage(HOME_ROUTE, "https://library.sejong.ac.kr/searchTotal")), { step: 1, finished: false, done: -1 });
+  eq(S.skipDoneSteps(g, [3]), { step: 1, finished: true, done: 3 });           // the target page is open
+  const ahead = Object.assign({}, g, { step: 3 });
+  eq(S.skipDoneSteps(ahead, [1]).step, 3);                                      // never moves back
+  eq(S.skipDoneSteps(g, [0, 9, "x"]), { step: 1, finished: false, done: -1 });  // junk ignored
+});
+
+// 2. Off-screen pointer
+const WIN = { left: 0, top: 0, right: 1000, bottom: 800 };
+const ARROW = { width: 44, height: 44 };
+test("offscreenArrow: hidden while the target is in view (fix 2)", () => {
+  eq(S.offscreenArrow({ left: 100, top: 300, right: 200, bottom: 330 }, WIN, ARROW), null);
+  eq(S.offscreenArrow({ left: 100, top: 780, right: 200, bottom: 830 }, WIN, ARROW), null);   // 20 px shown: in view
+  eq(S.offscreenArrow({ left: 100, top: 0, right: 200, bottom: 13 }, WIN, ARROW), null);       // a short target, all of it shown
+});
+
+test("offscreenArrow: below → bottom edge, above → top edge, at the target's x (fix 2)", () => {
+  eq(S.offscreenArrow({ left: 400, top: 1500, right: 500, bottom: 1530 }, WIN, ARROW), { dir: "down", x: 428, y: 748 });
+  eq(S.offscreenArrow({ left: 400, top: -300, right: 500, bottom: -270 }, WIN, ARROW), { dir: "up", x: 428, y: 8 });
+  // just 5 px peeking in: still an arrow
+  eq(S.offscreenArrow({ left: 400, top: 795, right: 500, bottom: 825 }, WIN, ARROW).dir, "down");
+});
+
+test("offscreenArrow: x clamped to the screen", () => {
+  eq(S.offscreenArrow({ left: -500, top: 2000, right: -400, bottom: 2030 }, WIN, ARROW).x, 8);
+  eq(S.offscreenArrow({ left: 990, top: 2000, right: 1400, bottom: 2030 }, WIN, ARROW).x, 1000 - 44 - 8);
+  eq(S.offscreenArrow({ left: 0, top: 2000, right: 10, bottom: 2030 }, { left: 0, top: 0, right: 30, bottom: 800 }, ARROW).x, 8); // tiny view
+});
+
+test("offscreenArrow inside a scrolling box (SJPT tree): its edges, not the window's", () => {
+  const tree = S.visibleArea({ width: 1000, height: 800 }, [{ left: 0, top: 150, right: 240, bottom: 600 }]);
+  eq(tree, { left: 0, top: 150, right: 240, bottom: 600 });
+  eq(S.offscreenArrow({ left: 20, top: 900, right: 200, bottom: 920 }, tree, ARROW), { dir: "down", x: 88, y: 548 });
+  eq(S.offscreenArrow({ left: 20, top: 100, right: 200, bottom: 120 }, tree, ARROW), { dir: "up", x: 88, y: 158 });
+  eq(S.offscreenArrow({ left: 20, top: 300, right: 200, bottom: 320 }, tree, ARROW), null);
+  // the box itself is below the window: point at the window's edge (scroll the page first)
+  eq(S.visibleArea({ width: 1000, height: 800 }, [{ left: 0, top: 900, right: 240, bottom: 1400 }]),
+    { left: 0, top: 0, right: 1000, bottom: 800 });
+});
+
+// 5. Labels: never "(home)", never doubled
+test("englishName shows label_en: no '(home)' note", () => {
+  eq(S.englishName({ name_en: "Study room booking (home)", label_en: "Study room booking" }), "Study room booking");
+  eq(S.englishName({ name_en: "Seat status (home)", name_en_site: null, label_en: "Seat status" }), "Seat status");
+  eq(S.bothNames({ name_ko: "좌석 현황", name_en: "Seat status (home)", label_en: "Seat status" }), "좌석 현황 / Seat status");
+  const row = S.crumbsModel([{ id: "a", name_ko: "스터디룸 예약", name_en: "Study room booking (home)", label_en: "Study room booking" }])[0];
+  ok(row.en.indexOf("(home)") < 0, row.en);
+});
+
+test("replaceLabelText: the whole label, never prepended (bug D)", () => {
+  eq(S.replaceLabelText(["S-Lounge", " 예약"], "S-Lounge booking"), ["S-Lounge booking", ""]);
+  eq(S.replaceLabelText(["  스터디룸 예약 "], "Study room booking"), ["  Study room booking "]);
+  eq(S.replaceLabelText(["\n", "스터디룸", " ", "예약"], "Study room booking"), ["\n", "Study room booking", " ", ""]);
+  const shown = S.replaceLabelText(["S-Lounge", " 예약"], "S-Lounge booking").join("");
+  eq(shown.split("S-Lounge").length - 1, 1);
+});
+
+test("nodeIsWholeLabel: a badge may follow, a word may not", () => {
+  ok(S.nodeIsWholeLabel("학사정보", "학사정보"));
+  ok(S.nodeIsWholeLabel("학사정보", "학사정보 N"));
+  ok(!S.nodeIsWholeLabel("예약", "S-Lounge 예약"));
+  ok(!S.nodeIsWholeLabel("예약", "스터디룸 예약"));
+  ok(!S.nodeIsWholeLabel("", "x"));
+});
+
+test("pickEnglish: a shared Korean label only where that item's selector matches", () => {
+  const more = [{ en: "More seat status", selectors: [".usingTimeCon a.more"] }];
+  eq(S.pickEnglish(more, (sel) => sel === ".usingTimeCon a.more"), "More seat status");
+  eq(S.pickEnglish(more, () => false), null);                       // some other "더보기": left alone
+  eq(S.pickEnglish([{ en: "Recorded", selectors: [] }], () => false), "Recorded");
+  eq(S.pickEnglish([{ en: "A", selectors: ["::bad("] }, { en: "B", selectors: [] }], () => { throw new Error("bad"); }), "B");
+});
+
+// 4. Answer card and the booking hint
+const RULES = {
+  answers: [{ id: "seat_booking", message: "answer_seat_booking", triggers: ["seat reservation", "book seat", "좌석 예약", "joy band"], actions: [] }],
+  done_hints: { "library.studyroom_booking": "hint_room_booking" },
+};
+test("answerFor: seat questions get the kiosk answer card (fix 4)", () => {
+  for (const q of ["seat reservation", "Book a seat", "좌석 예약", "열람실좌석예약", "joy band qilish", "how do I book a seat?"]) {
+    eq((S.answerFor(RULES, q) || {}).id, "seat_booking");
+  }
+  for (const q of ["study room", "seat status", "xona band qilish", "booking", ""]) eq(S.answerFor(RULES, q), null);
+  eq(S.answerTokens("O'rindiq  band-qilish!"), ["orindiq", "band", "qilish"]);
+});
+
+test("finishedMessage: room booking hint after the guide opens libseat", () => {
+  const hint = S.doneHint(RULES, "library.studyroom_booking");
+  eq(hint, "hint_room_booking");
+  eq(S.doneHint(RULES, "library.fs_seat"), null);
+  eq(S.finishedMessage({ outcome: "finished", name: "스터디룸 예약", hint }, T),
+    "Done: you reached “스터디룸 예약”. Pick a room, then a time. Rooms must be booked for at least half their capacity.");
+  eq(S.finishedMessage({ outcome: "finished", name: "좌석 현황", already: true }, T), "You are already on “좌석 현황”.");
+  eq(S.finishedMessage({ outcome: "stopped" }, T), "");
+  eq(S.idleMessage(GUIDE_ROUTE, "t", null, { targetId: "t", outcome: "finished", name: "X", hint }, T).indexOf("half their capacity") > 0, true);
+});
+
+test("new-tab hint: libseat is not a site the guide continues on", () => {
+  const route = [{ id: "library.home", site: "library", name_ko: "홈" },
+    { id: "library.studyroom_booking", site: "library", name_ko: "스터디룸 예약", label_en: "Study room booking",
+      url: "https://libseat.sejong.ac.kr/mobile/MA/LsroomList.php", opens_new_tab: true }];
+  const g = S.newGuide(route, null, 1);
+  eq(S.guideMessage(g, { kind: "here", index: 1 }, T), "You are there: “스터디룸 예약 / Study room booking” is highlighted. Click it to finish.");
+  const next = S.guideMessage(Object.assign({}, g), { kind: "next", index: 1 }, T);
+  ok(next.endsWith(T("hint_new_tab_external")) && next.indexOf(T("hint_new_tab")) < 0, next);
+});
+
 print("RESULT " + JSON.stringify({ passed, failures }));
 print("EXPORT " + JSON.stringify(exported));

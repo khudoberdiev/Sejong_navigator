@@ -131,7 +131,9 @@ async function scanTab(tabId) {
 //   guideView:<tabId>  { startedAt, shown, step, sejong, korOnly, injectFailed, at }  what that tab highlights now
 //                      (korOnly: index of the next step if it exists only in Korean mode, else -1;
 //                      injectFailed: a Sejong page where the content script could not be injected)
-//   guideLast          { outcome: "finished" | "stopped", targetId, name, at }
+//   guideLast          { outcome: "finished" | "stopped", targetId, name, at, already, hint }
+//                      (already: started on the target page itself; hint: a message key from
+//                      data/answers.json done_hints, for where the guide cannot follow)
 const GUIDE = "activeGuide";
 const viewKey = (tabId) => `guideView:${tabId}`;
 const SEJONG_TABS = ["portal", "sjpt", "ecampus", "library"].map((h) => `*://${h}.sejong.ac.kr/*`);
@@ -179,22 +181,25 @@ async function injectContentScript(tabId) {
   }
 }
 
-// Each frame answers {site, lang, visible, hidden}: steps on screen, and steps in the DOM but
-// hidden (inside a collapsed menu). Only visible steps can be highlighted, so a hidden step
-// shows its nearest visible parent step instead (pickStep takes the deepest visible one).
+// Each frame answers {site, lang, visible, hidden, here}: steps on screen, steps in the DOM but
+// hidden (inside a collapsed menu), and steps whose link points to the page the frame shows.
+// Only visible steps can be highlighted, so a hidden step shows its nearest visible parent step
+// instead (pickStep takes the deepest visible one).
 async function probeTab(tabId, route) {
   const frames = await framesOf(tabId).catch(() => []);
   const probes = (await Promise.all(frames.map(async (f) => {
     const answer = await sendToFrame(tabId, f.frameId, { type: "guide:probe", path: route });
     return answer ? {
       frameId: f.frameId, site: answer.site || null, lang: answer.lang || null,
-      visible: answer.visible || [], hidden: answer.hidden || [],
+      visible: answer.visible || [], hidden: answer.hidden || [], here: answer.here || [],
     } : null;
   }))).filter(Boolean);
   return { frames, probes };
 }
 
-async function runGuide(tabId) {
+// starting: the first run right after guide:start (a guide that is done at once was started
+// on the target page itself: "You are already on …").
+async function runGuide(tabId, starting = false) {
   const guide = await getGuide();
   if (!S.isGuide(guide)) return { active: false };
   let { frames, probes } = await probeTab(tabId, guide.route);
@@ -205,7 +210,16 @@ async function runGuide(tabId) {
     if (injected) ({ frames, probes } = await probeTab(tabId, guide.route));
     injectFailed = probes.length === 0; // still nobody answers: the user must reload the page
   }
-  const pick = S.pickStep(guide, probes.flatMap((p) => p.visible));
+  // Steps whose page is open in this tab are done (the library logo on the library home page:
+  // clicking it would only reload the page). Checked when a guide starts and after every page
+  // load or same-page navigation (#hash, history.pushState).
+  const skip = S.skipDoneSteps(guide, S.stepsOnPage(guide.route, tab && tab.url).concat(probes.flatMap((p) => p.here)));
+  if (skip.finished) { // the target page itself is open (also libseat, where nothing answers)
+    const ended = await endGuide("finished", { startedAt: guide.startedAt, already: starting });
+    if (ended) return { active: false, finished: true };
+  }
+  const pick = S.pickStep(Object.assign({}, guide, { step: skip.step }),
+    probes.flatMap((p) => p.visible).filter((i) => i > skip.done)); // never highlight a done step
   const target = pick.show >= 0 ? probes.find((p) => p.visible.includes(pick.show)) : null;
   // Save a forward jump, unless the guide was stopped or replaced while we were probing.
   const now = await updateGuide((g) => (g && g.startedAt === guide.startedAt && pick.step > g.step
@@ -258,17 +272,26 @@ async function startGuide(tabId, path, targetId) {
   await clearGuideEverywhere();
   await chrome.storage.session.remove("guideLast");
   await updateGuide(() => guide);
-  return runGuide(tabId);
+  return runGuide(tabId, true);
 }
 
-async function endGuide(outcome) {
+// opts.startedAt: end only that guide (a page check may race with a new guide:start).
+// → true if a guide was ended
+async function endGuide(outcome, opts = {}) {
   let before = null;
-  await updateGuide((g) => { before = g; return null; });
+  await updateGuide((g) => {
+    if (opts.startedAt !== undefined && (!g || g.startedAt !== opts.startedAt)) return undefined;
+    before = g;
+    return null;
+  });
+  if (opts.startedAt !== undefined && !before) return false;
   await clearGuideEverywhere();
   if (S.isGuide(before)) {
     const target = before.route[before.route.length - 1];
+    const hint = outcome === "finished" ? S.doneHint(await answerRules(), before.targetId) : null;
     await chrome.storage.session.set({ guideLast: {
-      outcome, targetId: before.targetId, name: target.name_ko || target.name_en || target.id, at: Date.now(),
+      outcome, targetId: before.targetId, name: target.name_ko || S.englishName(target) || target.id, at: Date.now(),
+      already: !!opts.already, hint,
     } });
   }
   return true;
@@ -333,6 +356,9 @@ async function refreshIfGuiding(tabId) {
 // Switching tabs, and top-level page loads (also non-Sejong pages, so the panel can say so).
 chrome.tabs.onActivated.addListener(({ tabId }) => refreshIfGuiding(tabId));
 chrome.webNavigation.onCompleted.addListener(({ tabId, frameId }) => { if (frameId === 0) refreshIfGuiding(tabId); });
+// Same-page navigation (a #hash link, history.pushState): no page load, but the step may be done.
+chrome.webNavigation.onReferenceFragmentUpdated.addListener(({ tabId, frameId }) => { if (frameId === 0) refreshIfGuiding(tabId); });
+chrome.webNavigation.onHistoryStateUpdated.addListener(({ tabId, frameId }) => { if (frameId === 0) refreshIfGuiding(tabId); });
 chrome.tabs.onRemoved.addListener((tabId) => {
   injectTried.delete(tabId);
   chrome.storage.session.remove(viewKey(tabId));
@@ -340,22 +366,54 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 // ------------------------------------------------------------------ 4. keep-English labels
 
-// The menu map bundled with the extension (scripts/sync_extension_data.py copies
-// data/menu_map.json here), plus recorded items whose English name you filled in.
+// The menu map bundled with the extension (scripts/build_menu_map.py copies data/menu_map.json
+// here), plus recorded items whose English name you filled in.
 let bundledItems = null;
-async function labelPairs() {
+async function menuItems() {
   if (!bundledItems) {
     const res = await fetch(chrome.runtime.getURL("data/menu_map.json"));
     bundledItems = (await res.json()).items || [];
   }
+  return bundledItems;
+}
+
+// → [[Korean label, [{en, selectors}]]]. en is the DISPLAY label (label_en: never "(home)").
+// Items that share a Korean label each keep their own English label and selectors; content.js
+// replaces a label only where the item's selector matches (S.pickEnglish).
+async function labelPairs() {
   const { recStore } = await chrome.storage.local.get("recStore");
   const pairs = new Map();
-  for (const item of bundledItems.concat(recStore ? Object.values(recStore.items) : [])) {
+  for (const item of (await menuItems()).concat(recStore ? Object.values(recStore.items) : [])) {
     const ko = S.cleanLabel(item.name_ko);
-    const en = S.cleanLabel(item.name_en);
-    if (ko && en && ko !== en && !pairs.has(ko)) pairs.set(ko, en);
+    const en = S.englishName(item);
+    if (!ko || !en || ko === en) continue;
+    if (!pairs.has(ko)) pairs.set(ko, []);
+    pairs.get(ko).push({ en, selectors: S.selectorsFor(item) });
   }
   return [...pairs];
+}
+
+// ------------------------------------------------------------------ answer cards
+
+// data/answers.json (copied by scripts/build_menu_map.py): short answers shown above the search
+// results ("seat reservation": reading-room seats are issued at the kiosks), and done_hints.
+let answersCache = null;
+async function answerRules() {
+  if (!answersCache) {
+    answersCache = await fetch(chrome.runtime.getURL("data/answers.json")).then((r) => r.json()).catch(() => ({}));
+  }
+  return answersCache;
+}
+
+// → {message, actions: [{label, item}]} or null. item: the menu item (for its route).
+async function answerCard(query) {
+  const answer = S.answerFor(await answerRules(), query);
+  if (!answer) return null;
+  const items = new Map((await menuItems()).map((i) => [i.id, i]));
+  return {
+    message: answer.message,
+    actions: (answer.actions || []).filter((a) => items.has(a.item)).map((a) => ({ label: a.label, item: items.get(a.item) })),
+  };
 }
 
 // ------------------------------------------------------------------ 5. pop-up translation fallback
@@ -381,6 +439,7 @@ const HANDLERS = {
   "api:search": (m) => apiGet("/search", { q: m.query, k: m.k || self.SEJONG_CONFIG.SEARCH_K }),
   "api:suggest": (m) => apiGet("/suggest", { prefix: m.prefix }),
   "api:route": (m) => apiGet("/route", { from: m.from, to: m.to }), // → full items, in click order
+  "ui:answer": (m) => answerCard(String(m.query || "")),
 
   "rec:state": async () => recorderState(await withStore((s) => s), await isRecording()),
   "rec:setRecording": async (m) => {

@@ -1342,8 +1342,8 @@
    "스터디룸 안내 및 예약",
    "guruh xonasi",
    "o'quv xona band qilish",
-   "study room",
-   "스터디룸",
+   "study room rules",
+   "스터디룸 이용안내",
    "kutubxona",
    "도서관"
   ]
@@ -1367,7 +1367,7 @@
    "시네마룸 안내 및 예약",
    "kino xonasi",
    "film ko'rish",
-   "cinema room",
+   "cinema room rules",
    "kutubxona",
    "도서관"
   ]
@@ -1389,9 +1389,9 @@
   "keywords": [
    "S-Lounge info & booking",
    "S-Lounge 안내 및 예약",
-   "S-Lounge",
+   "S-Lounge rules",
    "dam olish zonasi",
-   "lounge booking",
+   "S-Lounge 이용안내",
    "kutubxona",
    "도서관"
   ]
@@ -3122,67 +3122,73 @@
   ]
  },
  {
-  "id": "library.home_reserve_studyroom",
+  "id": "library.studyroom_booking",
   "site": "library",
   "name_ko": "스터디룸 예약",
-  "name_en": "Study room booking (home)",
+  "name_en": "Study room booking",
   "name_en_site": null,
   "parent_id": "library.home",
-  "url": "https://library.sejong.ac.kr/relation/studyroom",
-  "selector_desktop": ".reserve a[href=\"/relation/studyroom\"]",
-  "selector_mobile": ".reserve a[href=\"/relation/studyroom\"]",
+  "url": "https://libseat.sejong.ac.kr/mobile/MA/LsroomList.php",
+  "selector_desktop": "div.reserveStudy > a[href=\"/relation/studyroom\"]",
+  "selector_mobile": "div.reserveStudy > a[href=\"/relation/studyroom\"]",
   "mobile_path_note": null,
   "frame": null,
   "opens_new_tab": true,
-  "description": "Open the study room booking system (new tab).",
+  "description": "Book a group study room online (libseat, opens in a new tab): room 01 seats 12, rooms 02-13 seat 6. A room must be booked for at least half its capacity.",
   "keywords": [
    "study room",
+   "group study",
+   "book a room",
+   "room booking",
+   "스터디룸",
+   "그룹스터디룸",
    "스터디룸 예약",
    "xona band qilish",
-   "guruh xonasi",
-   "booking"
+   "guruh xonasi"
   ]
  },
  {
-  "id": "library.home_reserve_cinema",
+  "id": "library.cinemaroom_booking",
   "site": "library",
   "name_ko": "시네마룸 예약",
-  "name_en": "Cinema room booking (home)",
+  "name_en": "Cinema room booking",
   "name_en_site": null,
   "parent_id": "library.home",
-  "url": "https://library.sejong.ac.kr/relation/cinemaroom",
-  "selector_desktop": ".reserve a[href=\"/relation/cinemaroom\"]",
-  "selector_mobile": ".reserve a[href=\"/relation/cinemaroom\"]",
+  "url": "https://libseat.sejong.ac.kr/mobile/MA/LcinemaList.php",
+  "selector_desktop": "div.reserveCinema .moreCon > a[href=\"/relation/cinemaroom\"]",
+  "selector_mobile": "div.reserveCinema .moreCon > a[href=\"/relation/cinemaroom\"]",
   "mobile_path_note": null,
   "frame": null,
   "opens_new_tab": true,
-  "description": "Open the cinema room booking system (new tab).",
+  "description": "Book a cinema room online (libseat, opens in a new tab): six 3-person rooms (1-6).",
   "keywords": [
    "cinema room",
-   "시네마룸 예약",
-   "kino xonasi",
-   "booking"
+   "movie room",
+   "multimedia room",
+   "시네마룸",
+   "멀티미디어실",
+   "kino xona"
   ]
  },
  {
-  "id": "library.home_reserve_slounge",
+  "id": "library.slounge_booking",
   "site": "library",
-  "name_ko": "예약",
-  "name_en": "S-Lounge booking (home)",
+  "name_ko": "S-Lounge 예약",
+  "name_en": "S-Lounge booking",
   "name_en_site": null,
   "parent_id": "library.home",
-  "url": "https://library.sejong.ac.kr/relation/sloungeroom",
-  "selector_desktop": ".reserve a[href=\"/relation/sloungeroom\"]",
-  "selector_mobile": ".reserve a[href=\"/relation/sloungeroom\"]",
+  "url": "https://libseat.sejong.ac.kr/mobile/MA/LloungeList.php",
+  "selector_desktop": "div.reserveLounge .moreCon > a[href=\"/relation/sloungeroom\"]",
+  "selector_mobile": "div.reserveLounge .moreCon > a[href=\"/relation/sloungeroom\"]",
   "mobile_path_note": null,
   "frame": null,
   "opens_new_tab": true,
-  "description": "Open the S-Lounge booking system (new tab).",
+  "description": "Book an S-Lounge table online (libseat, opens in a new tab): 6-seat and 4-seat tables. Term hours: weekdays 10:00-21:00, Saturday 10:00-16:00.",
   "keywords": [
    "S-Lounge",
-   "예약",
-   "band qilish",
-   "lounge booking"
+   "lounge table",
+   "group table",
+   "라운지 예약"
   ]
  },
  {
@@ -3313,7 +3319,7 @@
   "id": "library.seat_status",
   "site": "library",
   "name_ko": "좌석 현황",
-  "name_en": "Seat status (home)",
+  "name_en": "Seat status",
   "name_en_site": null,
   "parent_id": "library.home",
   "url": null,
@@ -3345,20 +3351,13 @@
   "mobile_path_note": "Same block on mobile; opens libseat.sejong.ac.kr in a new tab.",
   "frame": null,
   "opens_new_tab": true,
-  "description": "Open the seat booking system (libseat): see free reading-room seats and reserve one.",
+  "description": "Open libseat to see how many reading-room seats are free right now. Reading-room seats are not booked online: they are issued at the kiosks (1F A/B reading rooms, 3F, 4F).",
   "keywords": [
+   "free seats",
    "seat status",
-   "좌석현황",
-   "o'rindiq holati",
-   "libseat",
-   "열람실 배정현황",
-   "bo'sh joy",
-   "seat reservation",
-   "seat booking",
-   "reserve a seat",
-   "좌석예약",
-   "열람실 좌석 예약",
-   "o'rindiq band qilish"
+   "how many seats",
+   "잔여좌석",
+   "좌석 현황"
   ]
  },
  {
@@ -3391,20 +3390,17 @@
   "name_en": "Seat map popup (libseat)",
   "name_en_site": null,
   "parent_id": "library.libseat_room_status",
-  "url": "https://libseat.sejong.ac.kr/mobile/MA/seatMapP.php?param_room_no=11",
+  "url": "https://libseat.sejong.ac.kr/mobile/MA/seatMapP.php",
   "selector_desktop": null,
   "selector_mobile": null,
-  "mobile_path_note": "Opened by window.open(name 'map') from the room-status table.",
+  "mobile_path_note": "Opened by window.open (name \"map\") from the room-status table.",
   "frame": null,
   "opens_new_tab": true,
-  "description": "Popup seat map for one room (param_room_no=11…18); clicking a free seat asks 예약하시겠습니까? and reserves it — this is where you pick a seat.",
+  "description": "Popup seat map for one reading room (which room: the param_room_no parameter, 11…18), showing which seats are free.",
   "keywords": [
    "seat map",
    "좌석배정",
-   "o'rindiq tanlash",
-   "좌석예약",
-   "reserve seat",
-   "joy band qilish"
+   "o'rindiq tanlash"
   ]
  }
 ]

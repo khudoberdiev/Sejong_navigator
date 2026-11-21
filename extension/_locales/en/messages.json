@@ -576,5 +576,50 @@
         "content": "$1"
       }
     }
+  },
+  "answer_seat_booking": {
+    "message": "Reading-room seats are issued at the kiosks (1F, 3F, 4F); they can't be booked online. You can book a study room, cinema room or S-Lounge table online.",
+    "description": "Answer card for 'seat reservation' questions (data/answers.json)."
+  },
+  "answer_see_free_seats": {
+    "message": "See free seats",
+    "description": "Answer card button: guide to the live seat status (libseat)."
+  },
+  "answer_book_studyroom": {
+    "message": "Book a study room",
+    "description": "Answer card button."
+  },
+  "answer_cinema_room": {
+    "message": "Cinema room",
+    "description": "Answer card button: book a cinema room."
+  },
+  "answer_slounge": {
+    "message": "S-Lounge",
+    "description": "Answer card button: book an S-Lounge table."
+  },
+  "hint_room_booking": {
+    "message": "Pick a room, then a time. Rooms must be booked for at least half their capacity.",
+    "description": "Shown when a guide to a room booking finishes (libseat opened in a new tab)."
+  },
+  "hint_new_tab_external": {
+    "message": "It opens in a new tab.",
+    "description": "Appended to a status line: the step opens a site where the guide does not run (e.g. libseat)."
+  },
+  "already_here": {
+    "message": "You are already on “$name$”.",
+    "description": "A guide was started to the page the student is on.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "arrow_up": {
+    "message": "The next step is above. Click to scroll to it.",
+    "description": "Tooltip of the orange arrow at the top edge of the page."
+  },
+  "arrow_down": {
+    "message": "The next step is below. Click to scroll to it.",
+    "description": "Tooltip of the orange arrow at the bottom edge of the page."
   }
 }

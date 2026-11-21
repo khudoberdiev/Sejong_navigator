@@ -221,3 +221,58 @@ def test_build_rejects_bad_fields(tmp_path):
 def test_find_cycles_reports_each_cycle_once():
     items = {"a": {"parent_id": "b"}, "b": {"parent_id": "a"}, "c": {"parent_id": "a"}, "d": {"parent_id": None}}
     assert build.find_cycles(items) == [["a", "b", "a"]]
+
+
+# --------------------------------------------------------------------- Problem N
+
+
+def test_no_url_in_data_carries_a_login_token():
+    # libseat links carry ?token=... (a login): never store, log or send one
+    for path in sorted((build.ROOT / "data").rglob("*.json")) + [build.EXTENSION_COPY, build.ANSWERS_COPY]:
+        assert "token=" not in path.read_text(encoding="utf-8").lower(), path
+    for item in load_menu_items().values():
+        if item.url and "libseat." in item.url:
+            assert "?" not in item.url, item.id  # libseat: no query at all
+
+
+def test_build_rejects_a_url_with_a_token(tmp_path):
+    bad = _raw_item("portal.a")
+    bad["url"] = "https://libseat.sejong.ac.kr/mobile/MA/LsroomList.php?token=abc123"
+    problems = _problems(tmp_path, [*_entries(), bad])
+    assert any("portal.a" in p and "login token" in p for p in problems)
+
+
+def test_display_labels_never_show_disambiguation_notes():
+    notes = re.compile(r"\((home|footer|quick menu|dashboard|libseat|links tab|header|sub-page)\)", re.I)
+    for item in load_menu_items().values():
+        assert not notes.search(item.label_en), (item.id, item.label_en)
+    built = json.loads(build.OUTPUT.read_text(encoding="utf-8"))["items"]
+    assert all(i["label_en"] == load_menu_items()[i["id"]].label_en for i in built)
+    # the notes stay where they help: name_en, which search uses
+    assert load_menu_items()["ecampus.footer_qna"].name_en == "Q&A (footer)"
+    assert load_menu_items()["ecampus.footer_qna"].label_en == "Q&A"
+
+
+def test_display_labels_are_never_doubled():
+    doubled = re.compile(r"(?i)\b(\S+(?: \S+)?) \1\b")
+    for item in load_menu_items().values():
+        assert not doubled.search(item.label_en), (item.id, item.label_en)  # "S-Lounge S-Lounge booking"
+
+
+def test_booking_items_are_leaves_under_library_home_opening_libseat():
+    items = load_menu_items()
+    pages = {"library.studyroom_booking": "LsroomList.php", "library.cinemaroom_booking": "LcinemaList.php",
+             "library.slounge_booking": "LloungeList.php"}
+    # the GO / ↗ button itself, not the card (Chrome agent, 2026-11-21: one match each, no other
+    # link in the card has the same href)
+    buttons = {"library.studyroom_booking": 'div.reserveStudy > a[href="/relation/studyroom"]',
+               "library.cinemaroom_booking": 'div.reserveCinema .moreCon > a[href="/relation/cinemaroom"]',
+               "library.slounge_booking": 'div.reserveLounge .moreCon > a[href="/relation/sloungeroom"]'}
+    for item_id, page in pages.items():
+        item = items[item_id]
+        assert item.parent_id == "library.home" and item.opens_new_tab, item_id
+        assert item.url == f"https://libseat.sejong.ac.kr/mobile/MA/{page}"
+        assert item.selector_desktop == item.selector_mobile == buttons[item_id], item_id
+        assert not any(i.parent_id == item_id for i in items.values()), f"{item_id} is not a leaf"
+        assert "(" not in item.label_en
+    assert not any(i.startswith("library.home_reserve_") for i in items)  # renamed, not duplicated

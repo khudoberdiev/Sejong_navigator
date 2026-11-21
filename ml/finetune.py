@@ -155,7 +155,10 @@ def split_synthetic(pairs: list[Pair], test_fraction: float = 0.25, seed: int = 
             train.append(p)
         elif term_out and template_out:
             test.append(p)
-    return train, test
+    # Two items can share a term ("예약"): held out for one, trained for the other, the same
+    # question text would be on both sides. Such a question is not held out: drop it from test.
+    seen = {normalize(p.query) for p in train}
+    return train, [p for p in test if normalize(p.query) not in seen]
 
 
 def split_real(pairs: list[Pair], test_fraction: float = 0.2, seed: int = 13):

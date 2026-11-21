@@ -10,8 +10,11 @@
 //
 // GUIDE: reports which steps of the active route are in this frame, visible or hidden
 //   (by selector_desktop / selector_mobile, else by the exact Korean / English site label), and
-//   whether the page is in English or Korean mode. Highlights the step background.js picks with
-//   an orange frame drawn as an overlay (no label on the page; the step text is in the panel).
+//   whether the page is in English or Korean mode, and which steps link to the page this frame
+//   shows (those are done). Highlights the step background.js picks with an orange frame drawn
+//   as an overlay (no label on the page; the step text is in the panel). A target above or below
+//   what the student sees (the window, or a scrolling box like the SJPT tree) gets an orange
+//   arrow at that edge instead; clicking it scrolls there. The page never scrolls by itself.
 //   On every page load it asks background.js for the active guide (kept in
 //   chrome.storage.session), so the highlight comes back after navigation and in new tabs.
 //   A click on the highlighted element advances the guide to the next step.
@@ -19,7 +22,9 @@
 //   are not iframes). Its nodes are found by treenodevalue codes, the same in KOR and ENG mode.
 //
 // KEEP-ENGLISH: after every page load (and whenever the menu changes) replaces Korean menu
-//   labels that are in the menu map with their English name. Hover shows the Korean original.
+//   labels that are in the menu map with their English display label (label_en: never a note
+//   like "(home)"). The label's whole text is replaced, only where the item's selector matches
+//   (generic labels like "더보기" stay alone elsewhere). Hover shows the Korean original.
 //   Paused while recording, so recordings keep the real Korean labels.
 //
 // POP-UP TRANSLATION: a MutationObserver (in every frame) notices modal pop-ups; page_hook.js
@@ -52,7 +57,7 @@
 
   // Leftovers in the page from an earlier copy: its highlight frame, and the old design's
   // label bubble and the class it put on the site's element.
-  for (const old of document.querySelectorAll("sejong-nav-frame, sejong-nav-widget, #sejong-nav-pointer")) old.remove();
+  for (const old of document.querySelectorAll("sejong-nav-frame, sejong-nav-arrow, sejong-nav-widget, #sejong-nav-pointer")) old.remove();
   for (const old of document.querySelectorAll(".sejong-nav-highlight")) old.classList.remove("sejong-nav-highlight");
 
   const ITEM = "li, [role=treeitem], [role=menuitem]";
@@ -212,6 +217,8 @@
   // ---------------------------------------------------------------- guide
 
   const FRAME_TAG = "sejong-nav-frame"; // the overlay (an unknown tag, so site CSS leaves it alone)
+  const ARROW_TAG = "sejong-nav-arrow"; // the off-screen pointer (content.css)
+  const ARROW_SIZE = { width: 44, height: 44 }; // = its CSS size
   const WIDGET_TAG = globalThis.SejongWidget.HOST_TAG; // the floating widget (top frame)
   let widget = null;
   let guiding = false;
@@ -221,15 +228,26 @@
   //   * checkVisibility(): display:none anywhere up the tree, visibility:hidden, opacity:0,
   //     content-visibility (Chrome 105+; the extension needs 116)
   //   * its own box (getBoundingClientRect) is at least 1×1 px
-  //   * that box is not cut away by an ancestor with overflow:hidden/clip/auto (a closed
-  //     height:0 dropdown) or pushed off the top/left of the document (left:-9999px menus).
+  //   * that box is not cut away by an ancestor with overflow:hidden/clip (a closed height:0
+  //     dropdown) or pushed off the top/left of the document (left:-9999px menus).
   //     CSS rules: position:absolute escapes clipping ancestors below its containing block,
   //     position:fixed escapes all of them.
-  function isVisible(el) {
+  //   A box the student can SCROLL (overflow auto/scroll, content taller or wider than it, e.g.
+  //   the SJPT menu tree) does not hide what is inside it: that is only scrolled away, like the
+  //   page below the window. Those boxes are returned as `scrollers` (the off-screen arrow).
+  //   → { shown, scrollers: [elements] }
+  function isScroller(node, s) {
+    const y = /auto|scroll/.test(s.overflowY) && node.clientHeight >= 1 && node.scrollHeight > node.clientHeight + 1;
+    const x = /auto|scroll/.test(s.overflowX) && node.clientWidth >= 1 && node.scrollWidth > node.clientWidth + 1;
+    return x || y;
+  }
+
+  function visibility(el) {
+    const scrollers = [];
     if (typeof el.checkVisibility === "function" &&
-        !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) return false;
+        !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true })) return { shown: false, scrollers };
     const style = getComputedStyle(el);
-    if (style.display === "none" || style.visibility !== "visible" || parseFloat(style.opacity) === 0) return false;
+    if (style.display === "none" || style.visibility !== "visible" || parseFloat(style.opacity) === 0) return { shown: false, scrollers };
     const clips = [{ left: -scrollX, top: -scrollY, right: Infinity, bottom: Infinity }];
     let position = style.position;
     for (let node = el.parentElement; node && node !== document.documentElement && position !== "fixed"; node = node.parentElement) {
@@ -238,7 +256,9 @@
       if (position !== "absolute" || containsAbsolute) {
         const clipX = s.overflowX !== "visible";
         const clipY = s.overflowY !== "visible";
-        if (clipX || clipY) {
+        if ((clipX || clipY) && node !== document.body && isScroller(node, s)) {
+          scrollers.push(node);
+        } else if (clipX || clipY) {
           const r = node.getBoundingClientRect();
           clips.push({
             left: clipX ? r.left : -Infinity, right: clipX ? r.right : Infinity,
@@ -248,7 +268,11 @@
         position = s.position; // this box is now what the next ancestors must contain
       }
     }
-    return S.boxIsShown(el.getBoundingClientRect(), clips);
+    return { shown: S.boxIsShown(el.getBoundingClientRect(), clips), scrollers };
+  }
+
+  function isVisible(el) {
+    return visibility(el).shown;
   }
 
   // The element's text as the SITE wrote it: Keep-English may have replaced Korean labels.
@@ -326,19 +350,29 @@
     return lang.startsWith("en") ? "en" : lang.startsWith("ko") ? "ko" : null;
   }
 
+  // Does the step's link (on this page) lead to the page this frame shows? Then clicking it would
+  // only reload the page: the step is done. "#", "javascript:" and empty hrefs never count.
+  function linksHere(el) {
+    const a = el.closest("a[href]");
+    return !!a && S.isRealLink(a.getAttribute("href")) && S.samePage(a.href, location.href);
+  }
+
   // Which path steps are in this frame. Step 0 (the site root) is skipped.
-  //   → { site, lang, visible: [indices on screen], hidden: [indices in the DOM but hidden] }
+  //   → { site, lang, visible: [indices on screen], hidden: [indices in the DOM but hidden],
+  //       here: [indices whose link points to this very page] }
   function probeSteps(path) {
     const visible = [];
     const hidden = [];
+    const here = [];
     const found = [];
     for (let i = 1; i < path.length; i++) {
       const hit = findElement(path[i]);
       if (!hit) continue;
       (hit.visible ? visible : hidden).push(i);
       if (hit.visible) found.push({ item: path[i], el: hit.el });
+      if (linksHere(hit.el)) here.push(i);
     }
-    return { site: SITE, lang: pageLanguage(found), visible, hidden };
+    return { site: SITE, lang: pageLanguage(found), visible, hidden, here };
   }
 
   // The highlight is an overlay: a fixed-position <sejong-nav-frame> drawn over the target's
@@ -357,50 +391,91 @@
     if (!current) return;
     cancelAnimationFrame(current.raf);
     current.frame.remove();
+    current.arrow.remove();
     current = null;
     if (widget) widget.setTarget(null);
   }
 
+  const viewportSize = () => ({ width: document.documentElement.clientWidth || innerWidth, height: document.documentElement.clientHeight || innerHeight });
+
+  // Every animation frame: the frame on the target, or (target scrolled away) the arrow at the
+  // edge it is behind. Styles are written only when something changed.
   function track() {
     if (!current) return;
-    const { el, frame } = current;
+    const { el, frame, arrow } = current;
     if (!el.isConnected) { // the site rebuilt its menu: find the step again
       clearPointer();
       if (!dead) chrome.runtime.sendMessage({ type: "guide:refresh" }).catch(() => {});
       return;
     }
-    if (current.tick++ % VISIBILITY_EVERY === 0) current.shown = isVisible(el);
+    if (current.tick++ % VISIBILITY_EVERY === 0) ({ shown: current.shown, scrollers: current.scrollers } = visibility(el));
     const g = S.frameGeometry(el.getBoundingClientRect());
-    const key = current.shown ? `${g.left}|${g.top}|${g.width}|${g.height}` : "hidden";
-    if (key !== current.key) { // write styles only when something moved
+    const box = { left: g.left, top: g.top, right: g.left + g.width, bottom: g.top + g.height };
+    const view = S.visibleArea(viewportSize(), current.scrollers.map((n) => n.getBoundingClientRect()));
+    const off = current.shown ? S.offscreenArrow(box, view, ARROW_SIZE) : null;
+    const key = !current.shown ? "hidden" : off ? `arrow|${off.dir}|${off.x}|${off.y}` : `${g.left}|${g.top}|${g.width}|${g.height}`;
+    if (key !== current.key) {
       current.key = key;
-      if (widget) widget.setTarget(current.shown ? { left: g.left, top: g.top, right: g.left + g.width, bottom: g.top + g.height } : null);
-      setImportant(frame, current.shown ? {
+      current.target = !current.shown ? null : off
+        ? { left: off.x, top: off.y, right: off.x + ARROW_SIZE.width, bottom: off.y + ARROW_SIZE.height }
+        : box;
+      if (widget) widget.setTarget(current.target); // the widget keeps clear of the frame or the arrow
+      setImportant(frame, current.shown && !off ? {
         display: "block", left: `${g.left}px`, top: `${g.top}px`, width: `${g.width}px`, height: `${g.height}px`,
         "--sejong-glow": String(g.glow),
       } : { display: "none" });
+      if (off) {
+        if (arrow.dataset.dir !== off.dir) {
+          arrow.dataset.dir = off.dir;
+          arrow.textContent = off.dir === "up" ? "↑" : "↓";
+          arrow.title = off.dir === "up" ? t("arrow_up") : t("arrow_down");
+          arrow.setAttribute("aria-label", arrow.title);
+        }
+        setImportant(arrow, { display: "block", left: `${off.x}px`, top: `${off.y}px` });
+      } else {
+        setImportant(arrow, { display: "none" });
+      }
     }
     current.raf = requestAnimationFrame(track);
   }
 
+  // The arrow: the only part of the guide that takes clicks (pointer-events only on itself).
+  // A click scrolls the page, and any scrolling box around the target, to the target.
+  function makeArrow() {
+    const arrow = document.createElement(ARROW_TAG);
+    arrow.setAttribute("role", "button");
+    arrow.setAttribute("tabindex", "0");
+    setImportant(arrow, { display: "none" });
+    const go = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (current && current.arrow === arrow) current.el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    };
+    arrow.addEventListener("click", go);
+    arrow.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") go(e); });
+    for (const type of ["mousedown", "mouseup", "pointerdown", "pointerup"]) arrow.addEventListener(type, (e) => e.stopPropagation());
+    return arrow;
+  }
+
   // reuse: this step opens another Sejong site in a new tab and a tab of it is already open
   // (background.js knows); a click then focuses that tab instead of opening another one.
+  // Never scrolls the page: a target out of view gets the arrow (track).
   function showPointer(path, index, startedAt, reuse) {
     const item = path[index];
     const hit = item && findElement(item);
     const el = hit && hit.visible ? hit.el : null;
     if (current && current.el === el && current.index === index && current.startedAt === startedAt) {
       current.reuse = !!reuse;
-      return; // already shown: don't scroll the page again on every refresh
+      return; // already shown
     }
     clearPointer();
     if (!el) return;
-    el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
     const frame = document.createElement(FRAME_TAG);
     frame.setAttribute("aria-hidden", "true");
     frame.dataset.step = `${index}/${path.length - 1}`;
-    document.documentElement.append(frame);
-    current = { el, frame, index, startedAt, reuse: !!reuse, tick: 0, shown: true, key: "", raf: 0 };
+    const arrow = makeArrow();
+    document.documentElement.append(frame, arrow);
+    current = { el, frame, arrow, index, startedAt, reuse: !!reuse, tick: 0, shown: true, scrollers: [], key: "", target: null, raf: 0 };
     track();
   }
 
@@ -409,6 +484,7 @@
   const MENU_LIKE = `${STRONG_CLICKABLE}, li, ${MENU_CONTAINERS}`;
   let labelMap = null;          // Korean label -> English label (bundled menu map + recordings)
   const replaced = new Map();   // text node -> its original Korean text
+  const titled = new Set();     // elements we gave a title (the Korean original, on hover)
   let englishTimer = null;
   const englishObserver = new MutationObserver(() => {
     clearTimeout(englishTimer);
@@ -427,27 +503,71 @@
     }
     if (!labelMap) {
       const answer = await chrome.runtime.sendMessage({ type: "labels:get" }).catch(() => null);
-      labelMap = new Map(answer && answer.ok ? answer.data : []);
+      // Korean label (S.labelKey) -> [{en, selectors}] (background.js labelPairs)
+      labelMap = new Map((answer && answer.ok ? answer.data : []).map(([ko, entries]) => [S.labelKey(ko), entries]));
     }
     applyEnglish();
     if (document.body) englishObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
-  // Only whole text nodes that ARE a known Korean label, and only inside menu-like elements.
+  const MAX_OWNER_LABEL = 60; // longer text: a container, not one menu label
+
+  function textNodesOf(el) {
+    const nodes = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+    return nodes;
+  }
+
+  function replaceWith(nodes, english, owner, label) {
+    const values = S.replaceLabelText(nodes.map((n) => n.nodeValue), english);
+    nodes.forEach((n, i) => {
+      if (n.nodeValue === values[i]) return;
+      replaced.set(n, n.nodeValue);
+      n.nodeValue = values[i];
+    });
+    if (!owner.hasAttribute("title")) {
+      owner.setAttribute("title", label);
+      owner.dataset.sejongTitle = "1";
+      titled.add(owner);
+    }
+  }
+
+  // Only inside menu-like elements, only a known Korean label, and only its WHOLE text: the
+  // label of a clickable element (all its text nodes: the first gets the English label, the
+  // rest become empty), or one text node that is the whole label apart from a badge. Labels
+  // shared by several items are replaced only where that item's selector matches.
   function applyEnglish() {
     if (!englishWanted() || !labelMap || !labelMap.size || !document.body) return;
     for (const node of replaced.keys()) if (!node.isConnected) replaced.delete(node);
+    const done = new Set();
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const label = S.cleanLabel(node.nodeValue);
-      const english = label && labelMap.get(label);
+    const pending = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) pending.push(node);
+    for (const node of pending) {
       const parent = node.parentElement;
-      if (!english || !parent || parent.closest(`script, style, textarea, ${FRAME_TAG}`) || !parent.closest(MENU_LIKE)) continue;
-      if (!replaced.has(node)) replaced.set(node, node.nodeValue);
-      node.nodeValue = node.nodeValue.replace(/\S[\s\S]*\S|\S/, english); // keep surrounding spaces
-      if (!parent.hasAttribute("title")) {
-        parent.setAttribute("title", label);
-        parent.dataset.sejongTitle = "1";
+      if (replaced.has(node) || !node.nodeValue.trim() || !parent) continue;
+      if (parent.closest(`script, style, textarea, ${FRAME_TAG}, ${ARROW_TAG}, ${WIDGET_TAG}`) || !parent.closest(MENU_LIKE)) continue;
+      const clickable = parent.closest(STRONG_CLICKABLE);
+      const owner = clickable && S.cleanLabel(clickable.textContent).length <= MAX_OWNER_LABEL ? clickable : parent;
+      if (done.has(owner)) continue; // each element once per round
+      done.add(owner);
+      const nodes = textNodesOf(owner);
+      if (nodes.some((n) => replaced.has(n))) continue; // already English
+      const ownerLabel = S.cleanLabel(owner.textContent);
+      const whole = labelMap.get(S.labelKey(ownerLabel));
+      const english = whole && S.pickEnglish(whole, (sel) => owner.matches(sel) || !!owner.closest(sel));
+      if (english) { // the element's whole label
+        replaceWith(nodes, english, owner, ownerLabel);
+        continue;
+      }
+      for (const n of nodes) { // one node that is the whole label apart from a badge
+        const nodeLabel = S.cleanLabel(n.nodeValue);
+        const single = nodeLabel && labelMap.get(S.labelKey(nodeLabel));
+        const el = n.parentElement;
+        const one = single && el && S.nodeIsWholeLabel(nodeLabel, ownerLabel) &&
+          S.pickEnglish(single, (sel) => owner.matches(sel) || !!el.closest(sel));
+        if (one) replaceWith([n], one, el, nodeLabel);
       }
     }
     englishObserver.takeRecords(); // our own edits must not trigger another round
@@ -455,14 +575,15 @@
 
   function restoreEnglish() {
     for (const [node, original] of replaced) {
-      if (!node.isConnected) continue;
-      node.nodeValue = original;
-      const parent = node.parentElement;
-      if (parent && parent.dataset.sejongTitle) {
-        parent.removeAttribute("title");
-        delete parent.dataset.sejongTitle;
+      if (node.isConnected) node.nodeValue = original;
+    }
+    for (const el of titled) {
+      if (el.dataset.sejongTitle) {
+        el.removeAttribute("title");
+        delete el.dataset.sejongTitle;
       }
     }
+    titled.clear();
     replaced.clear();
     englishObserver.takeRecords();
   }
@@ -641,7 +762,7 @@
 
   document.addEventListener("click", (event) => {
     if (dead) return; // an orphan from before an extension reload: a fresh copy took over
-    if (event.target instanceof Element && event.target.closest(WIDGET_TAG)) return; // our own UI
+    if (event.target instanceof Element && event.target.closest(`${WIDGET_TAG}, ${ARROW_TAG}`)) return; // our own UI
     if (recording) recordClick(event.target);
     // The user clicked the highlighted step: save the next step (before the page navigates away).
     if (current && event.target instanceof Node && current.el.contains(event.target)) {
@@ -715,10 +836,7 @@
     const wanted = display !== "panel";
     if (wanted && !widget) {
       widget = globalThis.SejongWidget.create(SITE);
-      if (current && current.shown && current.key && current.key !== "hidden") {
-        const [left, top, width, height] = current.key.split("|").map(Number);
-        widget.setTarget({ left, top, right: left + width, bottom: top + height });
-      }
+      if (current && current.target) widget.setTarget(current.target);
     } else if (!wanted && widget) {
       widget.destroy();
       widget = null;
