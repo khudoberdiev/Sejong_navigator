@@ -1058,5 +1058,35 @@ test("flow: 'free seats' with a scroll-reveal section → ↓ arrow on 더보기
   eq(S.offscreenArrow(S.frameGeometry(rectAt(955.8, 1036.6, 134.2, 20)), S.visibleArea(WIN_SIZE, []), S.ARROW_SIZE).dir, "down");
 });
 
+// ------------------------------------------------------------------ calendar card (Problem H)
+
+test("calendarDates: one day, a range, across years, open-ended, with a time", () => {
+  eq(S.calendarDates({ start: "2026-03-02", end: "2026-03-02" }, T), "Mon 2 Mar 2026");
+  eq(S.calendarDates({ start: "2026-03-03", end: "2026-03-03" }, T), "Tue 3 Mar 2026");
+  eq(S.calendarDates({ start: "2026-03-02", end: "2026-03-06" }, T), "2 Mar – 6 Mar 2026");
+  eq(S.calendarDates({ start: "2026-12-29", end: "2027-01-05" }, T), "29 Dec 2026 – 5 Jan 2027");
+  eq(S.calendarDates({ start: "2026-02-23", end: null, open_ended: true }, T), "from Mon 23 Feb 2026 (open-ended)");
+  eq(S.calendarDates({ start: "2026-12-01", end: "2026-12-03", time: "10:00–23:59" }, T), "1 Dec – 3 Dec 2026, 10:00–23:59");
+  eq(S.calendarDates({ start: "garbage" }, T), "");
+});
+
+test("calendarRow: Korean + English title, (past) / (now) marks", () => {
+  const row = { title_ko: "개강일", title_en: "First day of classes", start: "2026-03-03", end: "2026-03-03", status: "past" };
+  eq(S.calendarRow(row, T), { ko: "개강일", en: "First day of classes", dates: "Tue 3 Mar 2026", mark: "(past)" });
+  eq(S.calendarRow(Object.assign({}, row, { status: "current" }), T).mark, "(now)");
+  eq(S.calendarRow(Object.assign({}, row, { status: "upcoming" }), T).mark, "");
+});
+
+test("localISODate: the user's own date, zero-padded", () => {
+  eq(S.localISODate(new Date(2026, 0, 5, 23, 59)), "2026-01-05");
+  eq(S.localISODate(new Date(2026, 10, 21, 0, 1)), "2026-11-21");
+});
+
+test("calendar card texts", () => {
+  eq(T("calendar_show_where"), "Show me where");
+  eq(T("calendar_source"), "From the SJPT academic calendar — check there for changes.");
+  ok(T("calendar_tuition_note").indexOf("등록이력조회/고지서출력 (press 다음 first)") > 0);
+});
+
 print("RESULT " + JSON.stringify({ passed, failures }));
 print("EXPORT " + JSON.stringify(exported));

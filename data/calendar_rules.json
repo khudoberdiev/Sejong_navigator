@@ -1,0 +1,200 @@
+{
+ "_comment": "AI-generated — to be rewritten by me. Rules for answering academic-calendar questions from data/calendar.json (core/calendar.py; the backend's GET /calendar, the extension's answer card, eval/run_eval.py). The rows are LOOKED UP, never trained on: their dates change every semester. scripts/build_menu_map.py checks that every item id here exists and every message key is in extension/_locales/en/messages.json. Words are matched as whole words (Latin) or as substrings (Hangul), after the same normalization as search.",
+ "version": 1,
+ "date_words": [
+  "when",
+  "date",
+  "dates",
+  "start",
+  "starts",
+  "begin",
+  "begins",
+  "end",
+  "ends",
+  "deadline",
+  "period",
+  "schedule",
+  "until",
+  "open",
+  "close",
+  "due",
+  "qachon",
+  "sana",
+  "muddat",
+  "muddati",
+  "boshlanadi",
+  "tugaydi",
+  "jadval",
+  "언제",
+  "기간",
+  "일정",
+  "마감",
+  "날짜",
+  "시작",
+  "까지"
+ ],
+ "_drop_comment": "drop_words: removed from the question before matching rows (they say WHEN, not WHAT). Other date words (start, end, 시작, 마감) stay: 'semester start' is a row keyword.",
+ "drop_words": [
+  "when",
+  "date",
+  "dates",
+  "period",
+  "schedule",
+  "qachon",
+  "sana",
+  "muddat",
+  "muddati",
+  "언제",
+  "기간",
+  "일정",
+  "날짜",
+  "deadline",
+  "until",
+  "due",
+  "마감",
+  "까지"
+ ],
+ "semester_words": {
+  "1학기": [
+   "spring",
+   "1st semester",
+   "first semester",
+   "bahorgi",
+   "bahor",
+   "1학기",
+   "봄학기"
+  ],
+  "2학기": [
+   "fall",
+   "autumn",
+   "2nd semester",
+   "second semester",
+   "kuzgi",
+   "kuz",
+   "2학기",
+   "가을학기"
+  ],
+  "여름학기": [
+   "summer",
+   "yozgi",
+   "yoz",
+   "여름",
+   "하계",
+   "여름학기",
+   "summer session",
+   "summer semester"
+  ],
+  "겨울학기": [
+   "winter",
+   "qishki",
+   "qish",
+   "겨울",
+   "동계",
+   "겨울학기",
+   "winter session",
+   "winter semester"
+  ]
+ },
+ "breaks": {
+  "_comment": "The calendar has no 'break' rows. A break runs from the last day of one semester to the first day of the next, so 'winter break' = 2학기 종강일 + 1학기 개강일, 'summer break' = 1학기 종강일 + 2학기 개강일. 'akademik ta'til' is a leave of absence, not a break.",
+  "words": [
+   "break",
+   "vacation",
+   "holiday",
+   "holidays",
+   "방학",
+   "ta'til",
+   "tatil"
+  ],
+  "not_with": [
+   "akademik",
+   "leave"
+  ],
+  "end_hint": "semester end",
+  "start_hint": "semester start",
+  "winter": {
+   "end_of": "2학기",
+   "start_of": "1학기"
+  },
+  "summer": {
+   "end_of": "1학기",
+   "start_of": "2학기"
+  }
+ },
+ "concepts": [
+  {
+   "id": "finals",
+   "_comment": "No final-exam rows in the SJPT calendar: say so, and give the last day of classes.",
+   "words": [
+    "final exam",
+    "final exams",
+    "finals",
+    "기말고사",
+    "기말",
+    "yakuniy imtihon"
+   ],
+   "hints": [
+    "semester end"
+   ],
+   "note": "calendar_no_finals"
+  },
+  {
+   "id": "tuition",
+   "_comment": "Tuition appears only as bill PRINTING periods (등록금고지서 출력기간, 분납 1–4차) and the installment application. The amount is on the bill.",
+   "words": [
+    "tuition",
+    "fee",
+    "fees",
+    "pay",
+    "payment",
+    "등록금",
+    "납부",
+    "kontrakt",
+    "to'lov",
+    "tolov"
+   ],
+   "hints": [
+    "tuition bill",
+    "tuition installment"
+   ],
+   "note": "calendar_tuition_note",
+   "item": "sjpt.registration_history_tuition_bill_print"
+  }
+ ],
+ "calendar_item": "sjpt.academic_schedule_inquiry",
+ "hint_items": {
+  "course registration": "sjpt.course_registration",
+  "add/drop": "sjpt.course_registration",
+  "course pre-registration (wishlist)": "sjpt.course_wishlist_basket",
+  "tuition bill": "sjpt.registration_history_tuition_bill_print",
+  "tuition installment": "sjpt.tuition_installment_application",
+  "course withdrawal": "sjpt.course_withdrawal_application",
+  "grades": "sjpt.current_semester_grades",
+  "double major / minor": "sjpt.double_minor_other_major_application",
+  "drop double major/minor": "sjpt.double_minor_other_major_application",
+  "major assignment": "sjpt.major_assignment_application",
+  "course timetable": "sjpt.class_timetable_syllabus_inquiry",
+  "return from leave": "sjpt.status_change_request_leave_return_etc",
+  "leave of absence": "sjpt.status_change_request_leave_return_etc",
+  "major change": "sjpt.major_transfer_application_print",
+  "course evaluation": "sjpt.course_evaluation",
+  "excused absence": "sjpt.excused_absence_application",
+  "scholarship results": "sjpt.scholarship_history_inquiry",
+  "early graduation": "sjpt.early_graduation_application",
+  "teacher-training program": "sjpt.teacher_training_course_application",
+  "graduation review": "sjpt.graduation_review_application_early_b_s_",
+  "self-designed major": "sjpt.self_designed_major_apply_cancel",
+  "reserve forces": "sjpt.reserve_forces_transfer_request",
+  "course opening request": "sjpt.seasonal_semester_course_request"
+ },
+ "max_rows": 3,
+ "min_lexical": 0.3,
+ "strong_lexical": 0.8,
+ "keep_within": 0.8,
+ "concept_override": 0.6,
+ "semester_filler": [
+  "semester",
+  "semestr",
+  "학기"
+ ]
+}

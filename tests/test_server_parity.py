@@ -73,6 +73,11 @@ CASES = [
     ("GET", "/suggest?prefix=" + q("장ㅎ"), None),
     ("GET", "/suggest?prefix=Cur", None),
     ("GET", "/suggest", None),
+    ("GET", "/calendar?q=" + q("수강신청 언제") + "&today=2026-11-21", None),
+    ("GET", "/calendar?q=when+does+spring+semester+start&today=2026-11-21", None),
+    ("GET", "/calendar?q=grades&today=2026-11-21", None),            # not a calendar question: null
+    ("GET", "/calendar?q=tuition&today=21.11.2026", None),           # bad date: 400
+    ("GET", "/calendar", None),                                      # missing q: 400
     ("GET", "/suggest?prefix=%FF%FE", None),                 # invalid UTF-8 -> U+FFFD
     ("GET", "/s%65arch?q=grades", None),                     # percent-encoded path
     ("GET", "/nope", None),                                  # 404

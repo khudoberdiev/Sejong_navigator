@@ -99,3 +99,26 @@ ANSWER_QUESTIONS = [
     ("en", "book a room", None, "no card: the study room result answers it"),
     ("en", "free seats", None, "no card: seat_status_more answers it"),
 ]
+
+# Academic-calendar questions (Problem H): (language, question, expected FIRST row of the
+# calendar card, note), or None = no card. The answer depends on the date, so the eval fixes
+# "today". Checked by eval/run_eval.py (core/calendar.py) and tests/test_calendar.py.
+EVAL_TODAY = "2026-11-21"
+CALENDAR_QUESTIONS = [
+    ("en", "spring semester start date", "cal.2026_1.classes_start", "menu search said 계절학기 개설희망신청; past: no 2027 start yet"),
+    ("en", "when does spring semester start", "cal.2026_1.classes_start", ""),
+    ("en", "when does winter break start", "cal.2026_2.classes_end", "no break rows: the break starts after 종강일"),
+    ("en", "final exams", "cal.2026_2.classes_end", "no exam rows: last day of classes + a note"),
+    ("en", "course registration", "cal.2026_winter.course_reg_all", "no date word: strong title match; 전체학년, not the same-date 타교생 row"),
+    ("en", "tuition", "cal.2026_2.tuition_bill_inst4", "bill printing periods only"),
+    ("uz", "qishki ta'til qachon", "cal.2026_2.classes_end", ""),
+    ("uz", "bahorgi semestr qachon boshlanadi", "cal.2026_1.classes_start", ""),
+    ("uz", "kontrakt to'lovi qachon", "cal.2026_2.tuition_bill_inst4", ""),
+    ("ko", "수강신청 언제", "cal.2026_winter.course_reg_all", "the next registration: winter session"),
+    ("ko", "2학기 개강", "cal.2026_2.classes_start", "past"),
+    ("ko", "휴학 신청 기간", "cal.2026_2.leave_apply", "past, newest first"),
+    # not calendar questions: menu results only
+    ("en", "where are my grades?", None, ""),
+    ("en", "seat reservation", None, ""),
+    ("uz", "baholarim qayerda?", None, ""),
+]

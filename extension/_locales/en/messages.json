@@ -629,5 +629,132 @@
   "scroll_up": {
     "message": "Scroll up",
     "description": "Label below the orange arrow at the top edge (the next step is above)."
+  },
+  "calendar_title": {
+    "message": "Academic calendar",
+    "description": "Heading of the calendar answer card."
+  },
+  "calendar_show_where": {
+    "message": "Show me where",
+    "description": "Calendar card button: guide to the SJPT academic calendar page (학사일정조회)."
+  },
+  "calendar_show_page": {
+    "message": "Show me “$name$”",
+    "description": "Calendar card button: guide to the page the dates are about.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "calendar_source": {
+    "message": "From the SJPT academic calendar — check there for changes.",
+    "description": "Small source line under the calendar card."
+  },
+  "calendar_past": {
+    "message": "(past)",
+    "description": "After a calendar row whose dates are over (shown only when nothing is upcoming)."
+  },
+  "calendar_now": {
+    "message": "(now)",
+    "description": "After a calendar row whose period is going on today."
+  },
+  "calendar_open_ended": {
+    "message": "from $date$ (open-ended)",
+    "description": "A period with no end date.",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "calendar_with_time": {
+    "message": "$dates$, $time$",
+    "description": "Dates plus the time of day of a calendar row.",
+    "placeholders": {
+      "dates": {
+        "content": "$1"
+      },
+      "time": {
+        "content": "$2"
+      }
+    }
+  },
+  "calendar_break_note": {
+    "message": "The calendar has no break dates: a break runs from the last day of classes to the first day of the next semester.",
+    "description": "Calendar card note for break / vacation questions."
+  },
+  "calendar_no_finals": {
+    "message": "The SJPT calendar lists no final-exam dates. The last day of classes:",
+    "description": "Calendar card note for final-exam questions."
+  },
+  "calendar_tuition_note": {
+    "message": "The amount is on your bill: SJPT → 장학/등록 및 학생지원 → 장학이력 및 고지서출력 → 등록이력조회/고지서출력 (press 다음 first).",
+    "description": "Calendar card note for tuition questions. Keep the Korean menu names: they are what SJPT shows."
+  },
+  "date_weekdays": {
+    "message": "Sun Mon Tue Wed Thu Fri Sat",
+    "description": "Short weekday names, Sunday first, separated by spaces."
+  },
+  "date_months": {
+    "message": "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec",
+    "description": "Short month names, separated by spaces."
+  },
+  "date_full": {
+    "message": "$weekday$ $day$ $month$ $year$",
+    "description": "One day: Mon 2 Mar 2026.",
+    "placeholders": {
+      "weekday": {
+        "content": "$1"
+      },
+      "day": {
+        "content": "$2"
+      },
+      "month": {
+        "content": "$3"
+      },
+      "year": {
+        "content": "$4"
+      }
+    }
+  },
+  "date_day_month_year": {
+    "message": "$day$ $month$ $year$",
+    "description": "End of a range: 6 Mar 2026.",
+    "placeholders": {
+      "day": {
+        "content": "$1"
+      },
+      "month": {
+        "content": "$2"
+      },
+      "year": {
+        "content": "$3"
+      }
+    }
+  },
+  "date_day_month": {
+    "message": "$day$ $month$",
+    "description": "Start of a range in the same year: 2 Mar.",
+    "placeholders": {
+      "day": {
+        "content": "$1"
+      },
+      "month": {
+        "content": "$2"
+      }
+    }
+  },
+  "date_range": {
+    "message": "$from$ – $to$",
+    "description": "A period: 2 Mar – 6 Mar 2026.",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
   }
 }

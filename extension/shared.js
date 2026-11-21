@@ -778,6 +778,48 @@
     return (rules && rules.done_hints && rules.done_hints[targetId]) || null;
   }
 
+  // ------------------------------------------------------------------ calendar card (GET /calendar)
+
+  // The user's local date as YYYY-MM-DD (the backend decides past/upcoming with it).
+  function localISODate(d) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  // "2026-03-02" → parts for the messages (weekday from UTC: no time-zone shifts). t = translator.
+  function dateParts(iso, t) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+    if (!m) return null;
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const weekday = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+    return { weekday: t("date_weekdays").split(" ")[weekday], day: String(d), month: t("date_months").split(" ")[mo - 1], year: String(y) };
+  }
+
+  // A calendar row's dates: "Mon 2 Mar 2026" (one day), "2 Mar – 6 Mar 2026" (same year),
+  // "29 Dec 2026 – 5 Jan 2027", "from Mon 23 Feb 2026 (open-ended)"; + ", 10:00–23:59" if timed.
+  function calendarDates(row, t) {
+    const a = dateParts(row.start, t);
+    if (!a) return "";
+    const full = (p) => t("date_full", [p.weekday, p.day, p.month, p.year]);
+    let text;
+    if (row.open_ended || !row.end) {
+      text = t("calendar_open_ended", [full(a)]);
+    } else if (row.end === row.start) {
+      text = full(a);
+    } else {
+      const b = dateParts(row.end, t);
+      const from = a.year === b.year ? t("date_day_month", [a.day, a.month]) : t("date_day_month_year", [a.day, a.month, a.year]);
+      text = t("date_range", [from, t("date_day_month_year", [b.day, b.month, b.year])]);
+    }
+    return row.time ? t("calendar_with_time", [text, row.time]) : text;
+  }
+
+  // One card row: { ko, en, dates, mark: "(past)" / "(now)" / "" }
+  function calendarRow(row, t) {
+    const mark = row.status === "past" ? t("calendar_past") : row.status === "current" ? t("calendar_now") : "";
+    return { ko: row.title_ko || "", en: row.title_en || "", dates: calendarDates(row, t), mark };
+  }
+
   // ------------------------------------------------------------------ sites in the guide
 
   // A site's name for users (never the internal code). inSentence: the form that follows
@@ -1028,6 +1070,7 @@
     ARROW_SIZE, ARROW_MARGIN, ARROW_LABEL, MIN_SHOWN, offscreenArrow, arrowBox, visibleArea, nodeIsWholeLabel,
     widgetWanted, toolbarAction,
     answerTokens, triggerMatches, answerFor, doneHint, finishedMessage,
+    localISODate, dateParts, calendarDates, calendarRow,
     FRAME_PAD, FRAME_BORDER, frameGeometry, contentScriptMissing, judgeVisibility, planGuide,
     newGuide, isGuide, pickStep, advanceGuide, korOnlyStep, guideStatus,
     formatMessage, makeTranslator, nameOf, bothNames, crumbsModel, guideMessage, idleMessage,

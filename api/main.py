@@ -72,6 +72,11 @@ def route(from_id: str | None = Query(None, alias="from"), to_id: str | None = Q
     return _call(lambda: core.route(_required("from", from_id), _required("to", to_id)))
 
 
+@app.get("/calendar")
+def calendar(q: str | None = None, today: str | None = None):
+    return _call(lambda: core.calendar_answer(_required("q", q), today))
+
+
 @app.get("/suggest")
 def suggest(prefix: str = ""):
     return _call(lambda: core.suggest(prefix))

@@ -77,6 +77,20 @@ async function apiGet(path, params) {
   return body;
 }
 
+// The academic-calendar card (backend GET /calendar: core/calendar.py), or null. today: the
+// user's local date. Its buttons name menu items by id: the full items come from the bundled
+// menu map (the UI routes to them like to a search result).
+async function calendarCard(query, today) {
+  const params = { q: query };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(today || ""))) params.today = today;
+  const card = await apiGet("/calendar", params);
+  if (!card) return null;
+  const items = new Map((await menuItems()).map((i) => [i.id, i]));
+  return Object.assign({}, card, {
+    buttons: (card.buttons || []).filter((b) => items.has(b.item)).map((b) => ({ label: b.label, item: items.get(b.item) })),
+  });
+}
+
 // ------------------------------------------------------------------ 2. recorder
 
 // Every change goes through this queue, so clicks arriving from several frames
@@ -465,6 +479,7 @@ const HANDLERS = {
   "api:suggest": (m) => apiGet("/suggest", { prefix: m.prefix }),
   "api:route": (m) => apiGet("/route", { from: m.from, to: m.to }), // → full items, in click order
   "ui:answer": (m) => answerCard(String(m.query || "")),
+  "api:calendar": (m) => calendarCard(String(m.query || ""), m.today),
 
   "rec:state": async () => recorderState(await withStore((s) => s), await isRecording()),
   "rec:setRecording": async (m) => {

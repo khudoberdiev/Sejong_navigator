@@ -45,11 +45,12 @@ class VectorIndex:
         slug = re.sub(r"[^A-Za-z0-9]+", "_", self.embedder.model_name)
         return self.cache_dir / f"{slug}-{digest.hexdigest()[:16]}.npz"
 
-    def build(self, items: Iterable[MenuItem]) -> None:
-        """Embed each item's passage_text, or load the vectors from the disk cache."""
+    def build(self, items: Iterable[MenuItem], texts: list[str] | None = None) -> None:
+        """Embed each item's passage_text (or ``texts``, one per item: core/calendar.py indexes
+        calendar rows this way), or load the vectors from the disk cache."""
         items = list(items)
         self.ids = [item.id for item in items]
-        texts = [passage_text(item) for item in items]
+        texts = [passage_text(item) for item in items] if texts is None else list(texts)
         self.loaded_from_cache = False
 
         cache_file = self._cache_file(texts) if self.cache_dir else None

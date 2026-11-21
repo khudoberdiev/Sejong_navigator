@@ -12,8 +12,9 @@ from pathlib import Path
 
 from core import navigator
 from core.data import menu_map_path
+from core import calendar as calendar_lookup
 from core.answers import answer_for
-from eval.questions import ANSWER_QUESTIONS, QUESTIONS
+from eval.questions import ANSWER_QUESTIONS, CALENDAR_QUESTIONS, EVAL_TODAY, QUESTIONS
 from ml.embedder import DEFAULT_MODEL
 
 LANGS = ("uz", "en", "ko")
@@ -101,6 +102,23 @@ def main() -> None:
     for lang, question, expected, _ in ANSWER_QUESTIONS:
         got = (answer_for(question) or {}).get("id")
         lines.append(f"| {lang} | {question} | {expected or '(none)'} | {got or '(none)'}{'' if got == expected else ' ✗'} |")
+
+    lines += ["", f"## Calendar answers (data/calendar.json, today = {EVAL_TODAY})", "",
+              "First row of the calendar card, or no card. Not search: core/calendar.py.", "",
+              "| Setup | right | of |", "|---|---|---|"]
+    calendar_failures = []
+    for name, weight in SETUPS.items():
+        right = 0
+        for lang, question, expected, note in CALENDAR_QUESTIONS:
+            card = calendar_lookup.answer(question, today=EVAL_TODAY, weight=weight)
+            got = card["rows"][0]["id"] if card else None
+            right += got == expected
+            if got != expected and weight == navigator.SEMANTIC_WEIGHT:
+                calendar_failures.append((lang, question, expected, got, note))
+        lines.append(f"| {name} | {right} | {len(CALENDAR_QUESTIONS)} |")
+    lines += ["", f"Hybrid failures: {len(calendar_failures)}"]
+    for lang, question, expected, got, note in calendar_failures:
+        lines.append(f"- {lang} `{question}`: expected `{expected}`, got `{got}` {note}")
 
     # Written by ml/finetune.py; kept here so this file always has the full picture.
     if FINETUNE_RESULTS.exists():

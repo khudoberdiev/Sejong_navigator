@@ -93,23 +93,38 @@ def _search_terms() -> list[tuple[MenuItem, list[str]]]:
 
 @lru_cache(maxsize=1)
 def _vector_index() -> VectorIndex:
-    index = VectorIndex(_embedder or Embedder(), cache_dir=_cache_dir)
+    index = VectorIndex(embedder(), cache_dir=_cache_dir)
     index.build(sorted(load_menu_items().values(), key=lambda i: i.id))
     return index
 
 
+# Other modules' caches that depend on the embedder or the data (core/calendar.py adds its own).
+_extra_caches: list = []
+
+
+def embedder():
+    """The embedder search uses (the real model unless a test swapped it)."""
+    return _embedder or Embedder()
+
+
+def cache_dir() -> Path | None:
+    return _cache_dir
+
+
 def use_embedder(embedder, cache_dir: Path | None = None) -> None:
-    """Switch the embedder used by search(). None goes back to the real model
-    with the default disk cache. A custom embedder gets ``cache_dir`` (None = no disk cache)."""
+    """Switch the embedder used by search() (and the calendar lookup). None goes back to the real
+    model with the default disk cache. A custom embedder gets ``cache_dir`` (None = no disk cache)."""
     global _embedder, _cache_dir
     _embedder = embedder
     _cache_dir = DEFAULT_CACHE_DIR if embedder is None else cache_dir
     _vector_index.cache_clear()
+    for cached in _extra_caches:
+        cached.cache_clear()
 
 
 def reset_caches() -> None:
     """Forget the loaded menu map and every index built from it."""
-    for cached in (load_menu_items, _graph, _info, _trie, _search_terms, _vector_index):
+    for cached in (load_menu_items, _graph, _info, _trie, _search_terms, _vector_index, *_extra_caches):
         cached.cache_clear()
 
 

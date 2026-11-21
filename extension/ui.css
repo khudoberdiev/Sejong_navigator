@@ -94,3 +94,16 @@ button.danger { color: var(--accent); }
 /* Answer card (data/answers.json) above the results: the explanation, then one button per item. */
 .answer p { margin: 0 0 6px; }
 .answer .row { flex-wrap: wrap; }
+
+/* Calendar card (GET /calendar) above the results: up to 3 rows of dates, buttons, source line. */
+.calendar { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; }
+.calendar h3 { margin: 0 0 4px; font-size: 13px; }
+.calendar .cal-note { margin: 0 0 6px; }
+.calendar .cal-rows { list-style: none; margin: 0; padding: 0; }
+.calendar .cal-rows li { padding: 4px 0; border-top: 1px solid var(--line); }
+.calendar .cal-rows li:first-child { border-top: 0; }
+.calendar .cal-rows .en { color: var(--muted); font-size: 12px; }
+.calendar .cal-dates { font-weight: 600; }
+.calendar li.past .cal-dates { color: var(--muted); font-weight: 400; }
+.calendar .cal-mark { font-weight: 400; color: var(--muted); }
+.calendar .cal-source { font-size: 11px; margin: 4px 0 0; }

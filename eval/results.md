@@ -1,7 +1,7 @@
 <!-- AI-generated — to be rewritten by me -->
 # Search evaluation
 
-Model: `intfloat/multilingual-e5-small`, 42 questions (eval/questions.py), 339 menu items (data/menu_map.json, data `d0d8f5bc49d70039`). Regenerate with `.venv/bin/python -m eval.run_eval`.
+Model: `intfloat/multilingual-e5-small`, 42 questions (eval/questions.py), 339 menu items (data/menu_map.json, data `8339ffec1be165a4`). Regenerate with `.venv/bin/python -m eval.run_eval`.
 
 | Setup | uz top-1 | uz top-3 | en top-1 | en top-3 | ko top-1 | ko top-3 | all top-1 | all top-3 |
 |---|---|---|---|---|---|---|---|---|
@@ -58,6 +58,18 @@ Model: `intfloat/multilingual-e5-small`, 42 questions (eval/questions.py), 339 m
 | uz | joy band qilish | seat_booking | seat_booking |
 | en | book a room | (none) | (none) |
 | en | free seats | (none) | (none) |
+
+## Calendar answers (data/calendar.json, today = 2026-11-21)
+
+First row of the calendar card, or no card. Not search: core/calendar.py.
+
+| Setup | right | of |
+|---|---|---|
+| lexical only (w=0) | 15 | 15 |
+| semantic only (w=1) | 14 | 15 |
+| hybrid (w=0.5) | 15 | 15 |
+
+Hybrid failures: 0
 
 ## Fine-tuning
 

@@ -42,6 +42,10 @@ def used_message_keys():
     for answer in answers["answers"]:
         keys |= {answer["message"], *(a["label"] for a in answer["actions"])}
     keys |= set(answers["done_hints"].values())
+    # the calendar card: note keys from the rules and core/calendar.py, labels from the backend
+    rules = json.loads((ROOT / "data" / "calendar_rules.json").read_text(encoding="utf-8"))
+    keys |= {c["note"] for c in rules["concepts"] if c.get("note")}
+    keys |= set(re.findall(r'(?:note = |"label": )"(calendar_[a-z_]+)"', (ROOT / "core" / "calendar.py").read_text(encoding="utf-8")))
     return keys
 
 

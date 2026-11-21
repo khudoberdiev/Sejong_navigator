@@ -27,6 +27,9 @@ a note like "(home)" that only tells our items apart).
 
 data/answers.json (answer cards, hand-written) is checked against the built items
 and extension/_locales/en/messages.json, and copied to extension/data/answers.json.
+data/calendar_rules.json and data/calendar.json (the academic calendar, core/calendar.py) are
+checked the same way: item ids exist, message keys exist, every row's related_hint has a page
+(or is listed in HINTS_WITHOUT_PAGE).
 """
 from __future__ import annotations
 
@@ -47,6 +50,11 @@ RAW_DIR = ROOT / "data" / "raw"
 OUTPUT = ROOT / "data" / "menu_map.json"
 EXTENSION_COPY = ROOT / "extension" / "data" / "menu_map.json"
 ANSWERS = ROOT / "data" / "answers.json"
+CALENDAR = ROOT / "data" / "calendar.json"
+CALENDAR_RULES = ROOT / "data" / "calendar_rules.json"
+# related_hint values with no menu page of their own: the card shows only the 학사일정 button.
+HINTS_WITHOUT_PAGE = {"semester start", "semester end", "midterm exams", "instruction days",
+                      "course retake", "tuition payment certificate"}
 ANSWERS_COPY = ROOT / "extension" / "data" / "answers.json"
 MESSAGES = ROOT / "extension" / "_locales" / "en" / "messages.json"
 # A query parameter that identifies a login or a person: never stored (privacy).
@@ -254,6 +262,34 @@ def check_answers(answers: dict, items: list[dict], messages: dict) -> list[str]
     return problems
 
 
+def check_calendar(rules: dict, rows: list[dict], items: list[dict], messages: dict) -> list[str]:
+    """Problems in data/calendar_rules.json (+ calendar.json): unknown item ids or message keys,
+    a related_hint that is neither mapped to a page nor in HINTS_WITHOUT_PAGE, bad rows."""
+    ids = {i["id"] for i in items}
+    problems = []
+    for name, item_id in [("calendar_item", rules.get("calendar_item"))] + [
+            (f"hint_items[{hint!r}]", item) for hint, item in rules.get("hint_items", {}).items()] + [
+            (f"concept {c['id']}", c["item"]) for c in rules.get("concepts", []) if c.get("item")]:
+        if item_id not in ids:
+            problems.append(f"calendar_rules.json: {name}: unknown item {item_id!r}")
+    for key in [c["note"] for c in rules.get("concepts", []) if c.get("note")] + [
+            "calendar_break_note", "calendar_show_where", "calendar_show_page"]:
+        if key not in messages:
+            problems.append(f"calendar_rules.json: message {key!r} is not in messages.json")
+    seen = set()
+    for row in rows:
+        rid = row.get("id")
+        if rid in seen:
+            problems.append(f"calendar.json: duplicate id {rid!r}")
+        seen.add(rid)
+        if not (isinstance(row.get("start"), str) and isinstance(row.get("end"), str) and row["start"] <= row["end"]):
+            problems.append(f"calendar.json: {rid}: start/end must be dates with start <= end")
+        hint = row.get("related_hint")
+        if hint and hint not in rules.get("hint_items", {}) and hint not in HINTS_WITHOUT_PAGE:
+            problems.append(f"calendar.json: {rid}: related_hint {hint!r} has no page in calendar_rules.json hint_items")
+    return problems
+
+
 def render_answers(answers: dict) -> str:
     """The exact text of extension/data/answers.json."""
     return json.dumps(answers, ensure_ascii=False, indent=1) + "\n"
@@ -305,7 +341,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     text = render(items)
     answers = json.loads(ANSWERS.read_text(encoding="utf-8"))
-    problems = check_answers(answers, items, json.loads(MESSAGES.read_text(encoding="utf-8")))
+    messages = json.loads(MESSAGES.read_text(encoding="utf-8"))
+    problems = check_answers(answers, items, messages) + check_calendar(
+        json.loads(CALENDAR_RULES.read_text(encoding="utf-8")), json.loads(CALENDAR.read_text(encoding="utf-8")), items, messages)
     if problems:
         print(f"answers NOT built, {len(problems)} problem(s):", file=sys.stderr)
         for problem in problems:

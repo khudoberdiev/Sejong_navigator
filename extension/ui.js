@@ -22,6 +22,10 @@
 // reading-room seats are issued at the kiosks, not booked online). background.js matches the
 // question against data/answers.json; the card shows above the results with one button per
 // item that does exist (free seats, room booking). Its text is in messages.json.
+// Calendar card: "when does spring semester start", "수강신청 언제", "qishki ta'til qachon" get the
+// dates from the SJPT academic calendar (backend GET /calendar, with the user's local date):
+// up to 3 rows, a note, "Show me where" (the 학사일정 page) and the page the dates are about.
+// Menu results stay below both cards.
 (function (root) {
   "use strict";
 
@@ -53,7 +57,7 @@
     // ---- model: survives a rebuild (UI language change)
     // path: the full route from the backend (from portal.root); shown and started trimmed to the
     // tab's site. notice: "You are already in the Library" + the better result it offers.
-    const model = { query: "", results: null, chosen: -1, searching: false, path: [], targetId: null, error: "", notice: null, answer: null };
+    const model = { query: "", results: null, chosen: -1, searching: false, path: [], targetId: null, error: "", notice: null, answer: null, calendar: null };
     const settings = { keepEnglish: true, translatePopups: true, display: "widget", uiLanguage: "auto" };
     let languages = [];
     let parts = null;
@@ -84,6 +88,12 @@
       const answerText = el("p");
       const answerButtons = el("div", { class: "row" });
       const answer = el("div", { class: "banner notice answer", hidden: true }, answerText, answerButtons);
+      const calendarNote = el("p", { class: "cal-note" });
+      const calendarRows = el("ul", { class: "cal-rows" });
+      const calendarButtons = el("div", { class: "row" });
+      const calendar = el("section", { class: "calendar", hidden: true, "aria-label": t("calendar_title") },
+        el("h3", { text: t("calendar_title") }), calendarNote, calendarRows, calendarButtons,
+        el("p", { class: "muted cal-source", text: t("calendar_source") }));
       const route = el("div", { class: "route", hidden: true },
         el("h3", { text: t("click_path") }), crumbs, el("div", { class: "row" }, start, open, stop), status);
       const error = el("p", { class: "banner", hidden: !model.error, text: model.error });
@@ -110,9 +120,11 @@
         displayHint,
         select("uiLanguage", [["auto", t("ui_language_auto")], ...languages.map((l) => [l.code, l.name])], t("setting_ui_language")));
 
-      container.replaceChildren(error, el("div", { class: "search-box" }, q, suggestions), answer, results, notice, route, settingsBox);
-      parts = { q, suggestions, results, route, crumbs, start, open, stop, status, error, notice, noticeText, noticeButton, answer, answerText, answerButtons };
+      container.replaceChildren(error, el("div", { class: "search-box" }, q, suggestions), calendar, answer, results, notice, route, settingsBox);
+      parts = { q, suggestions, results, route, crumbs, start, open, stop, status, error, notice, noticeText, noticeButton, answer, answerText, answerButtons,
+        calendar, calendarNote, calendarRows, calendarButtons };
       wire();
+      renderCalendar();
       renderAnswer();
       renderResults();
       renderNotice();
@@ -201,10 +213,13 @@
       model.searching = true;
       model.results = null;
       model.answer = null;
+      model.calendar = null;
       parts.route.hidden = true;
+      renderCalendar();
       renderAnswer();
       renderResults();
       const answer = adapter.send({ type: "ui:answer", query: text }).catch(() => null);
+      const calendar = adapter.send({ type: "api:calendar", query: text, today: S.localISODate(new Date()) }).catch(() => null);
       try {
         model.results = await adapter.send({ type: "api:search", query: text, k: CONFIG.SEARCH_K });
         model.error = "";
@@ -214,12 +229,39 @@
         showError(e);
       }
       model.answer = await answer;
+      model.calendar = await calendar;
       model.searching = false;
       if (destroyed) return;
+      renderCalendar();
       renderAnswer();
       renderResults();
-      // Show the path of the best result right away, unless an answer card explains first.
-      if (model.results.length && !model.answer) choose(0);
+      // Show the path of the best result right away, unless a card answers first.
+      if (model.results.length && !model.answer && !model.calendar) choose(0);
+    }
+
+    // The calendar card: dates as text only (titles from the calendar, formats from messages.json).
+    function renderCalendar() {
+      const c = model.calendar;
+      parts.calendar.hidden = !c;
+      if (!c) return;
+      parts.calendarNote.hidden = !c.note;
+      parts.calendarNote.textContent = c.note ? t(c.note) : "";
+      parts.calendarRows.replaceChildren(...c.rows.map((row) => {
+        const r = S.calendarRow(row, t);
+        return el("li", { class: row.status },
+          el("div", { class: "ko", text: r.ko }), r.en ? el("div", { class: "en", text: r.en }) : null,
+          el("div", { class: "cal-dates" }, r.dates, r.mark ? el("span", { class: "cal-mark", text: " " + r.mark }) : null));
+      }));
+      parts.calendarButtons.replaceChildren(...c.buttons.map((b, i) => {
+        const button = el("button", { class: i === 0 ? "primary" : "",
+          text: b.label === "calendar_show_page" ? t("calendar_show_page", [S.nameOf(b.item)]) : t("calendar_show_where") });
+        button.addEventListener("click", () => {
+          model.chosen = model.results ? model.results.findIndex((r) => r.id === b.item.id) : -1;
+          renderResults();
+          showItem(b.item);
+        });
+        return button;
+      }));
     }
 
     function renderAnswer() {

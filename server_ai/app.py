@@ -1,9 +1,9 @@
 # AI-generated — to be rewritten by me
-"""Routing, CORS and the four endpoints. Calls ONLY core/.
+"""Routing, CORS and the five endpoints. Calls ONLY core/
 
 Every rule here copies what api/ (FastAPI + Starlette CORSMiddleware) does, so
 both servers are interchangeable for the extension:
-  * GET /health /search /route /suggest -> JSON
+  * GET /health /search /route /suggest /calendar -> JSON
   * known path, other method (also HEAD and non-CORS OPTIONS) -> 405 + "allow: GET"
   * unknown path -> 404 {"detail":"Not Found"}
   * "/health/" -> 307 redirect to "/health" (Starlette's redirect_slashes)
@@ -45,6 +45,7 @@ ENDPOINTS = {
     "/search": lambda q: core.search(_required(q, "q"), _parse_k(q)),
     "/route": lambda q: core.route(_required(q, "from"), _required(q, "to")),
     "/suggest": lambda q: core.suggest(q.get("prefix", "")),
+    "/calendar": lambda q: core.calendar_answer(_required(q, "q"), q.get("today")),
 }
 
 
