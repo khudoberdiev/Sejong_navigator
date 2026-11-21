@@ -24,6 +24,12 @@ That score says how well the WORDS match. These rules add what the words cannot 
 
 The final score is text score × prior, so it stays in [0, 1] and an exact English label
 match ("Grade") cannot beat the intent by itself.
+
+4. A folder never ranks above one of its OWN pages that also matches the query by words
+   (lexical score >= PAGE_EVIDENCE): "tuition" matches the folder 장학/등록 및 학생지원 exactly
+   (its keyword) and the page 등록이력조회/고지서출력 inside it ("tuition bill"); the folder's
+   0.8 prior cannot close a 1.0-vs-0.6 word gap, so the folder is put just below that page
+   (below_own_pages). A page that matches only by meaning (semantic) does not count.
 """
 from __future__ import annotations
 
@@ -128,6 +134,32 @@ def prior(info: ItemInfo, normalized_query: str) -> float:
     if info.secondary and not query_names_subtree(normalized_query, info.secondary):
         value *= SECONDARY_PRIOR
     return value
+
+
+PAGE_EVIDENCE = 0.3  # lexical score a page needs before its folder steps below it
+STEP = 0.0001        # how far below
+
+
+def below_own_pages(finals: dict[str, float], lexical: dict[str, float], info: dict[str, "ItemInfo"],
+                    items: dict[str, MenuItem]) -> dict[str, float]:
+    """Rule 4: every folder in ``finals`` scores at most (its best word-matching page inside it)
+    − STEP. finals: {item_id: final score}; lexical: {item_id: lexical score, before folding}."""
+    best_page: dict[str, float] = {}
+    for item_id, score in finals.items():
+        if info[item_id].kind != "page" or lexical.get(item_id, 0.0) < PAGE_EVIDENCE:
+            continue
+        parent = items[item_id].parent_id
+        for _ in range(50):  # walk up to the root (the map has no cycles; the guard is cheap)
+            if parent is None:
+                break
+            if info[parent].kind == "folder" and score > best_page.get(parent, 0.0):
+                best_page[parent] = score
+            parent = items[parent].parent_id
+    out = dict(finals)
+    for folder, page_score in best_page.items():
+        if folder in out and out[folder] >= page_score:
+            out[folder] = round(max(page_score - STEP, 0.0), 4)
+    return out
 
 
 def fold(scored: Iterable[tuple[float, str]], info: dict[str, ItemInfo]) -> dict[str, float]:

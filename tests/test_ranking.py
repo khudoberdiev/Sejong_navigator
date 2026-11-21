@@ -138,3 +138,35 @@ def test_scores_stay_in_range_and_results_carry_kind():
     assert all(r["kind"] in ("page", "folder", "entry") for r in results)
     route = core.route("portal.root", "library.fs_seat")
     assert [s["kind"] for s in route][3] == "entry" and route[3]["entry_for"] == "library"
+
+
+# --------------------------------------------------------------------- rule 4 and break questions
+
+
+def test_a_folder_steps_below_its_own_matching_page():
+    # "tuition": the folder 장학/등록 및 학생지원 has the keyword itself; the page inside it has "tuition bill"
+    ids = lexical("tuition", 5)
+    assert ids.index("sjpt.registration_history_tuition_bill_print") < ids.index("sjpt.scholarship_registration_student_support")
+
+
+def test_below_own_pages_rule():
+    items = {i.id: i for i in [item("portal.root"), item("portal.f", "portal.root"), item("portal.p", "portal.f"),
+                               item("portal.q", "portal.f"), item("portal.other", "portal.root")]}
+    info = ranking.classify(items)
+    assert info["portal.f"].kind == "folder"
+    finals = {"portal.f": 0.79, "portal.p": 0.47, "portal.q": 0.6, "portal.other": 0.9}
+    out = ranking.below_own_pages(finals, {"portal.p": 0.58, "portal.q": 0.0}, info, items)
+    assert out["portal.f"] == 0.4699                   # just below p, the page that matches by words
+    assert out["portal.q"] == 0.6 and out["portal.other"] == 0.9
+    # a page matching only by meaning (lexical 0) does not push its folder down
+    assert ranking.below_own_pages(finals, {"portal.q": 0.0}, info, items)["portal.f"] == 0.79
+
+
+def test_break_questions_demote_the_seasonal_semester():
+    from core import navigator
+    finals = {"sjpt.seasonal_semester_course_request": 0.5, "sjpt.seasonal_semester_course_drop": 0.48, "library.quick_faq": 0.36}
+    for q in ("winter break", "qishki ta'til", "겨울방학 언제", "when does winter break start"):
+        out = navigator._demote_for_breaks(finals, normalize(q))
+        assert out["sjpt.seasonal_semester_course_request"] == 0.25 and out["library.quick_faq"] == 0.36, q
+    for q in ("winter session courses", "winter break courses", "계절학기 수강신청", "winter", "akademik ta'til"):
+        assert navigator._demote_for_breaks(finals, normalize(q)) == finals, q

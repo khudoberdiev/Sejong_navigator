@@ -39,6 +39,7 @@ MAX_K = 50             # search() returns at most this many results
 MIN_SIMILARITY = 0.6   # fuzzy matches below this count as no match
 MIN_EXACT_LEN = 2      # shorter normalized terms are ignored for exact matching
 MIN_FUZZY_LEN = 3      # shorter normalized terms are never matched fuzzily
+MIN_PINNED_SCORE = 0.0001  # the calendar card's page, pinned first, when no other result matched
 SEMANTIC_WEIGHT = float(os.environ.get("SEJONG_SEMANTIC_WEIGHT", "0.5"))
 DEFAULT_CACHE_DIR = Path(os.environ.get(
     "SEJONG_CACHE_DIR", Path(__file__).resolve().parent.parent / ".cache" / "embeddings"))
@@ -158,11 +159,19 @@ def _term_score(term: str, query: str, query_tokens: list[str]) -> float:
     return best
 
 
+def contained_score(query: str, term: str) -> float:
+    """The (normalized) query as whole words INSIDE a longer term: "tuition" in "tuition bill".
+    Score = len(query) / len(term), so a short query inside a long name counts little."""
+    return len(query) / len(term) if len(query) >= 4 and len(term) > len(query) and f" {query} " in f" {term} " else 0.0
+
+
 def _lexical_scores(normalized_query: str) -> dict[str, float]:
-    """{item_id: best _term_score over the item's names and keywords}, in [0, 1]."""
+    """{item_id: best score over the item's names and keywords}, in [0, 1]: a term in the query
+    (_term_score), or the query inside a term (contained_score)."""
     tokens = normalized_query.split()
     return {
-        item.id: max((_term_score(t, normalized_query, tokens) for t in terms), default=0.0)
+        item.id: max((max(_term_score(t, normalized_query, tokens), contained_score(normalized_query, t))
+                      for t in terms), default=0.0)
         for item, terms in _search_terms()
     }
 
@@ -196,7 +205,8 @@ def search(query: str, k: int) -> list[dict]:
       final = w × semantic + (1 − w) × lexical,   w = SEMANTIC_WEIGHT (default 0.5)
       * lexical: edit-distance matching against names and keywords (_term_score)
       * semantic: embedding cosine, min-max scaled per query (_semantic_scores)
-    Then core/ranking.py turns word matches into intent (see its docstring):
+    When the academic-calendar card answers the question, its page comes first
+    (_calendar_page_first). Then core/ranking.py turns word matches into intent (see its docstring):
       * a hit on an item inside an external system (libseat) counts for the link that opens it
       * final = text score × prior: page 1.0 > folder 0.8 > entry link 0.7, and × 0.7 for the
         Sejong Language Institute's menus unless the query asks for them
@@ -238,13 +248,49 @@ def search_with_weight(query: str, k: int, weight: float) -> list[dict]:
             text_scores.append((score, item.id))
     info = _info()
     items = load_menu_items()
-    scored = []
-    for item_id, score in sorted(ranking.fold(text_scores, info).items()):  # by id: ties go to the smaller id
+    finals = {}
+    for item_id, score in ranking.fold(text_scores, info).items():
         final = round(score * ranking.prior(info[item_id], q), 4)
         if final > 0:
-            scored.append((final, items[item_id]))
+            finals[item_id] = final
+    finals = ranking.below_own_pages(finals, lexical, info, items)
+    finals = _demote_for_breaks(finals, q)
+    scored = [(final, items[item_id]) for item_id, final in sorted(finals.items()) if final > 0]  # by id: ties go to the smaller id
 
-    return [{**_item_dict(item), "score": score} for score, item in top_k(scored, k)]
+    results = [{**_item_dict(item), "score": score} for score, item in top_k(scored, k)]
+    return _calendar_page_first(results, query, k, weight, finals)
+
+
+def _calendar_page_first(results: list[dict], query: str, k: int, weight: float, finals: dict[str, float]) -> list[dict]:
+    """When the calendar card answers the question (core/calendar.py), the page its last button
+    opens comes first: the row's related page (수강신청, 등록이력조회/고지서출력, ...) if it has one,
+    else 학사일정조회 ("Show me where"). Its score becomes the top score; the rest keep their order
+    (the last one drops out if the list was full; if nothing else matched it scores
+    MIN_PINNED_SCORE). /search has no "today": the server's date
+    picks the card's first row, which only decides which related page."""
+    from core import calendar  # here, not at the top: core.calendar imports this module
+    card = calendar.answer(query, weight=weight)
+    if not card or not card["buttons"]:
+        return results
+    page = card["buttons"][-1]["item"]
+    rest = [r for r in results if r["id"] != page]
+    top = max([finals.get(page, 0.0)] + [r["score"] for r in results])
+    # at least MIN_PINNED_SCORE: scores stay in (0, 1] even when nothing else matched
+    pinned = {**_item_dict(load_menu_items()[page]), "score": max(round(top, 4), MIN_PINNED_SCORE)}
+    return [pinned] + rest[:k - 1]
+
+
+def _demote_for_breaks(finals: dict[str, float], normalized_query: str) -> dict[str, float]:
+    """A break / holiday question ("winter break", "qishki ta'til") is not about the seasonal
+    semester (계절학기, "winter session"): those items × factor, unless the query says session,
+    course, 계절학기 or 수강 (data/calendar_rules.json break_menu_demote; core/calendar.py)."""
+    from core import calendar  # here, not at the top: core.calendar imports this module
+    rule = calendar.load_rules()["break_menu_demote"]
+    if not calendar.is_break_question(normalized_query) or calendar.mentions(normalized_query, rule["unless"]):
+        return finals
+    items = load_menu_items()
+    hit = lambda item_id: any(w in items[item_id].name_ko for w in rule["name_words"])
+    return {i: (round(s * rule["factor"], 4) if hit(i) else s) for i, s in finals.items()}
 
 
 def route(from_id: str, to_id: str) -> list[dict]:

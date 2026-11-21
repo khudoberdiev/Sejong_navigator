@@ -136,6 +136,15 @@ def _break_kind(q: str, semesters: list[str]) -> Optional[list[str]]:
     return kinds or ["winter", "summer"]
 
 
+def is_break_question(normalized_question: str) -> bool:
+    """"winter break", "qishki ta'til", "여름방학" (not "akademik ta'til": a leave of absence)."""
+    return _break_kind(normalized_question, semesters_in(normalized_question)) is not None
+
+
+def mentions(normalized_question: str, words) -> bool:
+    return any(_has(normalized_question, w) for w in words)
+
+
 def _concept(q: str) -> Optional[dict]:
     for concept in load_rules()["concepts"]:
         if any(_has(q, w) for w in concept["words"]):
@@ -145,16 +154,10 @@ def _concept(q: str) -> Optional[dict]:
 
 # ---------------------------------------------------------------- scoring
 
-def _contained(core_q: str, term: str) -> float:
-    """The question inside a longer title ("grade inquiry" in "Grade inquiry period (final &
-    seasonal)"): len(question) / len(term), at word boundaries."""
-    return len(core_q) / len(term) if len(core_q) >= 4 and f" {core_q} " in f" {term} " else 0.0
-
-
 def _lexical(core_q: str) -> dict[str, float]:
     """navigator's term score (a title/keyword in the question), or the question in a title."""
     tokens = core_q.split()
-    return {row.id: max((max(navigator._term_score(t, core_q, tokens), _contained(core_q, t)) for t in terms), default=0.0)
+    return {row.id: max((max(navigator._term_score(t, core_q, tokens), navigator.contained_score(core_q, t)) for t in terms), default=0.0)
             for row, terms in _row_terms()}
 
 

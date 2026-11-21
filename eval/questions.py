@@ -82,6 +82,11 @@ QUESTIONS = [
     ("ko", "시네마룸", "library.cinemaroom_booking", ""),
     ("en", "S-Lounge", "library.slounge_booking", "info page S-Lounge 안내 및 예약 competes"),
     ("ko", "라운지 예약", "library.slounge_booking", ""),
+    # ---------------------------------------------------------------- added 2026-11-21 (calendar follow-up)
+    # Expected ids fixed before the new results were seen.
+    ("en", "tuition", "sjpt.registration_history_tuition_bill_print", "the folder 장학/등록 및 학생지원 has the exact keyword"),
+    ("en", "winter break", "sjpt.academic_schedule_inquiry", "계절학기 'winter session' competes; the calendar card answers it"),
+    ("uz", "qishki ta'til", "sjpt.academic_schedule_inquiry", "no menu item names a break"),
 ]
 
 # Questions whose answer is an answer card (data/answers.json), not a menu item:

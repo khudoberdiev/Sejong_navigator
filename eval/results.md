@@ -1,26 +1,26 @@
 <!-- AI-generated — to be rewritten by me -->
 # Search evaluation
 
-Model: `intfloat/multilingual-e5-small`, 42 questions (eval/questions.py), 339 menu items (data/menu_map.json, data `8339ffec1be165a4`). Regenerate with `.venv/bin/python -m eval.run_eval`.
+Model: `intfloat/multilingual-e5-small`, 45 questions (eval/questions.py), 339 menu items (data/menu_map.json, data `877f1aa26764ade4`). Regenerate with `.venv/bin/python -m eval.run_eval`.
 
 | Setup | uz top-1 | uz top-3 | en top-1 | en top-3 | ko top-1 | ko top-3 | all top-1 | all top-3 |
 |---|---|---|---|---|---|---|---|---|
-| lexical only (w=0) | 7/12 (58%) | 7/12 (58%) | 9/16 (56%) | 13/16 (81%) | 7/14 (50%) | 10/14 (71%) | 23/42 (55%) | 30/42 (71%) |
-| semantic only (w=1) | 0/12 (0%) | 1/12 (8%) | 7/16 (44%) | 10/16 (62%) | 6/14 (43%) | 8/14 (57%) | 13/42 (31%) | 19/42 (45%) |
-| hybrid (w=0.5) | 3/12 (25%) | 7/12 (58%) | 11/16 (69%) | 13/16 (81%) | 9/14 (64%) | 11/14 (79%) | 23/42 (55%) | 31/42 (74%) |
+| lexical only (w=0) | 8/13 (62%) | 8/13 (62%) | 12/18 (67%) | 15/18 (83%) | 9/14 (64%) | 10/14 (71%) | 29/45 (64%) | 33/45 (73%) |
+| semantic only (w=1) | 2/13 (15%) | 3/13 (23%) | 9/18 (50%) | 12/18 (67%) | 8/14 (57%) | 9/14 (64%) | 19/45 (42%) | 24/45 (53%) |
+| hybrid (w=0.5) | 4/13 (31%) | 8/13 (62%) | 14/18 (78%) | 15/18 (83%) | 10/14 (71%) | 11/14 (79%) | 28/45 (62%) | 34/45 (76%) |
 
 ## Weight sweep (all languages)
 
 | w | top-1 | top-3 |
 |---|---|---|
-| 0.0 | 23/42 (55%) | 30/42 (71%) |
-| 0.3 | 23/42 (55%) | 32/42 (76%) |
-| 0.5 | 23/42 (55%) | 31/42 (74%) |
-| 0.6 | 23/42 (55%) | 29/42 (69%) |
-| 0.7 | 19/42 (45%) | 27/42 (64%) |
-| 0.8 | 18/42 (43%) | 25/42 (60%) |
-| 0.9 | 15/42 (36%) | 23/42 (55%) |
-| 1.0 | 13/42 (31%) | 19/42 (45%) |
+| 0.0 | 29/45 (64%) | 33/45 (73%) |
+| 0.3 | 28/45 (62%) | 35/45 (78%) |
+| 0.5 | 28/45 (62%) | 34/45 (76%) |
+| 0.6 | 27/45 (60%) | 32/45 (71%) |
+| 0.7 | 24/45 (53%) | 31/45 (69%) |
+| 0.8 | 23/45 (51%) | 29/45 (64%) |
+| 0.9 | 20/45 (44%) | 27/45 (60%) |
+| 1.0 | 19/45 (42%) | 24/45 (53%) |
 
 ## Hybrid top-1 failures (w=0.5)
 
@@ -36,10 +36,8 @@ Model: `intfloat/multilingual-e5-small`, 42 questions (eval/questions.py), 339 m
 | uz | kutubxonada o'qish uchun xona band qilmoqchiman | `library.studyroom_booking` | `sjpt.facility_use_application`, `library.comm_notice`, `library.studyroom_booking` | long sentence |
 | en | how do I renew a libary book | `library.my_loans` | `library.quick_loans`, `library.my_loans`, `library.fac_tour` | typo |
 | en | submit homework | `ecampus.my_courses` | `library.thesis_submit`, `sjpt.tuition_installment_application`, `library.sub_quick_purchase` | short |
-| en | print my tuition invoice | `sjpt.registration_history_tuition_bill_print` | `sjpt.tuition_bill_print`, `sjpt.registration_history_tuition_bill_print`, `sjpt.scholarship_history_bill_print` |  |
 | en | my weekly class schedule | `sjpt.registered_courses_inquiry_print` | `sjpt.class_timetable_syllabus_inquiry`, `portal.academic_calendar`, `ecampus.user_upcoming_event` |  |
 | en | where can I watch recorded lectures | `ecampus.my_courses` | `ecampus.open_course`, `portal.course_guide`, `library.thesis_dcollection` | few shared words |
-| ko | 성적 조회 | `sjpt.current_semester_grades` | `ecampus.degree_grade_check`, `sjpt.current_semester_grades`, `sjpt.print_grade_report` | with spaces |
 | ko | 빌린 책 반납 기한 | `library.my_loans` | `library.use_return`, `library.guide_storage`, `sjpt.payment_bill_print` | few shared words |
 | ko | 과제 제출하는 곳 | `ecampus.my_courses` | `ecampus.user_edit_profile`, `ecampus.guides`, `ecampus.user_tab_notifications` | verb ending -하는 |
 | ko | 수강 신청 내역 | `sjpt.registered_courses_inquiry_print` | `sjpt.course_registration`, `portal.course_guide`, `ecampus.user_participating_courses` | spacing differs from keywords |

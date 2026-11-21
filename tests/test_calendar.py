@@ -170,3 +170,29 @@ def test_specific_groups_alone_are_not_merged():
     general = row("[학생]수강신청기간(전체학년)", "2026-02-12")
     assert [len(m) for _, _, m in cal.merge_same_dates([(1.0, a), (1.0, b)])] == [0, 0]
     assert cal.merge_same_dates([(0.9, a), (1.0, general), (0.8, b)]) == [(1.0, general, ["x.[학생]수강신청기간(1학년)", "x.[학생]수강신청기간(2학년)"])]
+
+
+# --------------------------------------------------------------------- menu results under the card
+
+
+@pytest.mark.parametrize("question, page", [
+    ("winter break", "sjpt.academic_schedule_inquiry"),               # no related page: "Show me where"
+    ("when does spring semester start", "sjpt.academic_schedule_inquiry"),
+    ("수강신청 언제", "sjpt.course_registration"),                      # the row's related page
+    ("tuition", "sjpt.registration_history_tuition_bill_print"),
+])
+def test_the_calendar_page_comes_first_among_menu_results(question, page):
+    from core import navigator
+    results = navigator.search_with_weight(question, 5, 0.0)
+    assert results[0]["id"] == page
+    assert len(results) <= 5 and len({r["id"] for r in results}) == len(results)
+    scores = [r["score"] for r in results]
+    assert scores == sorted(scores, reverse=True) and 0 < scores[0] <= 1
+
+
+def test_no_card_no_change():
+    from core import navigator
+    for question in ("grades", "seat reservation", "study room"):
+        assert cal.answer(question, weight=0.0) is None
+        ids = [r["id"] for r in navigator.search_with_weight(question, 5, 0.0)]
+        assert "sjpt.academic_schedule_inquiry" not in ids[:1], question

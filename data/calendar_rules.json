@@ -196,5 +196,24 @@
   "semester",
   "semestr",
   "학기"
- ]
+ ],
+ "break_menu_demote": {
+  "_comment": "Menu search (core/navigator.py): a break question demotes the seasonal-semester items, unless it is about the session itself.",
+  "name_words": [
+   "계절학기"
+  ],
+  "unless": [
+   "session",
+   "sessions",
+   "course",
+   "courses",
+   "계절학기",
+   "계절",
+   "수강",
+   "kurs",
+   "fan",
+   "fanlar"
+  ],
+  "factor": 0.5
+ }
 }
